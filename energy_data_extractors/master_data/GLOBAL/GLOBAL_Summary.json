@@ -1,0 +1,12 @@
+{
+  "total_regions": 3,
+  "total_records": 20160,
+  "regions_processed": [
+    "NRLDC"
+  ],
+  "date_range": {
+    "start": "2025-08-11",
+    "end": "2025-08-11"
+  },
+  "created_at": "2025-09-02T14:48:26.994153"
+}

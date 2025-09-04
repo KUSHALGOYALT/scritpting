@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+.env
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Data and artifacts
+energy_data_extractors/local_data/
+energy_data_extractors/mapped_data/
+energy_data_extractors/data/processed/
+energy_data_extractors/data/raw/
+energy_data_extractors/data/master/
+energy_data_extractors/data/*.parquet
+energy_data_extractors/data/*.csv
+energy_data_extractors/data/*.json
+energy_data_extractors/mapped_data/*.csv
+energy_data_extractors/mapped_data/*.json
+
+# Logs
+*.log
+
+# Misc
+reorganization_summary.json
