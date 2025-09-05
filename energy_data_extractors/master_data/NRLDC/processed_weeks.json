@@ -1,32 +1,26 @@
 {
   "110825-170825_WK20": {
-    "timestamp": "2025-09-02T14:48:06.991384",
-    "filename": "DSA.pdf",
-    "csv_file": "NRLDC_DSA_Week_110825-170825_WK20.csv",
-    "url": "http://164.100.60.165/Comm/2021-22/DSA/110825-170825(WK-20)/DSA.pdf"
+    "timestamp": "2025-09-04T17:30:58.590602",
+    "filename": "Supporting_files_110825-170825_WK20.xls",
+    "csv_file": "Supporting_files_110825-170825_WK20.csv",
+    "url": "http://164.100.60.165/comm/2021-22/dsa/110825-170825(WK-20)/Supporting_files.xls"
   },
-  "040825-100825_WK19": {
-    "timestamp": "2025-09-02T14:48:11.108974",
-    "filename": "DSA.pdf",
-    "csv_file": "NRLDC_DSA_Week_040825-100825_WK19.csv",
-    "url": "http://164.100.60.165/Comm/2021-22/DSA/040825-100825(WK-19)/DSA.pdf"
+  "180825-240825_WK21": {
+    "timestamp": "2025-09-04T17:30:53.995828",
+    "filename": "Supporting_files_180825-240825_WK21.xls",
+    "csv_file": "Supporting_files_180825-240825_WK21.csv",
+    "url": "http://164.100.60.165/comm/2021-22/dsa/180825-240825(WK-21)/Supporting_files.xls"
   },
   "280725-030825_WK18": {
-    "timestamp": "2025-09-02T14:48:13.518542",
-    "filename": "DSA.pdf",
-    "csv_file": "NRLDC_DSA_Week_280725-030825_WK18.csv",
-    "url": "http://164.100.60.165/Comm/2021-22/DSA/280725-030825(WK-18)/DSA.pdf"
+    "timestamp": "2025-09-04T17:31:03.133761",
+    "filename": "Supporting_files_280725-030825_WK18.xls",
+    "csv_file": "Supporting_files_280725-030825_WK18.csv",
+    "url": "http://164.100.60.165/comm/2021-22/dsa/280725-030825(WK-18)/Supporting_files.xls"
   },
-  "210725-270725_WK17": {
-    "timestamp": "2025-09-02T14:48:17.713172",
-    "filename": "DSA.pdf",
-    "csv_file": "NRLDC_DSA_Week_210725-270725_WK17.csv",
-    "url": "http://164.100.60.165/Comm/2021-22/DSA/210725-270725(WK-17)/DSA.pdf"
-  },
-  "140725-200725_WK16": {
-    "timestamp": "2025-09-02T14:48:21.078883",
-    "filename": "DSA.pdf",
-    "csv_file": "NRLDC_DSA_Week_140725-200725_WK16.csv",
-    "url": "http://164.100.60.165/Comm/2021-22/DSA/140725-200725(WK-16)/DSA.pdf"
+  "290724-040824_WK18": {
+    "timestamp": "2025-09-04T17:31:08.651478",
+    "filename": "Supporting_files_290724-040824_WK18.xls",
+    "csv_file": "Supporting_files_290724-040824_WK18.csv",
+    "url": "http://164.100.60.165/comm/2021-22/dsa/290724-040824(WK-18)/Supporting_files.xls"
   }
 }

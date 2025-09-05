@@ -1,25 +1,41 @@
 {
-  "region": "NRLDC",
-  "total_records": 20160,
-  "date_range": {
-    "start": "2025-08-11",
-    "end": "2025-08-17"
+  "total_stations": 120,
+  "states_covered": 22,
+  "regional_groups": 10,
+  "state_distribution": {
+    "Uttar Pradesh": 504,
+    "Himachal Pradesh": 413,
+    "Rajasthan": 210,
+    "Madhya Pradesh": 175,
+    "Uttarakhand": 154,
+    "Jammu & Kashmir": 140,
+    "Gujarat": 84,
+    "Tamil Nadu": 56,
+    "Bihar": 35,
+    "Maharashtra": 28,
+    "Multi-State": 28,
+    "Telangana": 28,
+    "Chhattisgarh": 28,
+    "Haryana": 28,
+    "Odisha": 21,
+    "Karnataka": 21,
+    "Andhra Pradesh": 14,
+    "West Bengal": 14,
+    "Arunachal Pradesh": 14,
+    "Assam": 7,
+    "Bhutan": 7,
+    "Unknown": 4
   },
-  "entities": [
-    "Delhi State",
-    "Haryana State",
-    "Punjab State",
-    "Rajasthan State",
-    "UP State",
-    "Uttarakhand State"
-  ],
-  "weeks_covered": [
-    "210725-270725_WK17",
-    "040825-100825_WK19",
-    "280725-030825_WK18",
-    "140725-200725_WK16",
-    "110825-170825_WK20"
-  ],
-  "files_processed": 5,
-  "created_at": "2025-09-02T14:48:21.202175"
+  "group_distribution": {
+    "Northern Hills": 707,
+    "Northern Plains": 532,
+    "Western": 294,
+    "Central": 231,
+    "Southern": 119,
+    "Eastern": 77,
+    "Multi-State": 28,
+    "North Eastern": 14,
+    "Cross-Border": 7,
+    "Unknown": 4
+  }
 }
