@@ -73,48 +73,84 @@ class SRPCExtractor:
         return dt.strftime('%d%m%y')
 
     def _parse_index_for_zip_links(self) -> List[str]:
-        """Parse SRPC commercial index to collect .zip links with DDMMYY patterns.
+        """Generate SRPC ZIP URLs using known patterns instead of parsing HTML.
 
-        Source: https://www.srpc.kar.nic.in/html/xml-search/commercial.html
+        Since the commercial page doesn't contain direct ZIP links, we generate URLs
+        based on the known SRPC pattern: https://www.srpc.kar.nic.in/website/{year}/commercial/{DDMMYY}.zip
+        
         Returns absolute URLs to .zip files that match DDMMYY.zip or DDMMYY-DDMMYY.zip patterns.
         """
         try:
-            index_url = "https://www.srpc.kar.nic.in/html/xml-search/commercial.html"
-            r = self.session.get(index_url, timeout=60)
-            if r.status_code != 200:
-                logger.warning(f"Index fetch failed ({r.status_code})")
-                return []
-            html = r.text
+            logger.info("🧭 Generating SRPC ZIP URLs using known patterns...")
             
-            # Extract hrefs to .zip files
-            hrefs = re.findall(r'href\s*=\s*"([^"]+\.zip)"', html, flags=re.IGNORECASE)
-            
-            # Filter for DDMMYY.zip or DDMMYY-DDMMYY.zip patterns (indicating updated data)
-            weekly_patterns = []
-            for href in hrefs:
-                # Check for DDMMYY.zip pattern (6 digits + .zip)
-                if re.search(r'\d{6}\.zip$', href, re.IGNORECASE):
-                    weekly_patterns.append(href)
-                    logger.info(f"📅 Found DDMMYY.zip pattern: {href}")
-                # Check for DDMMYY-DDMMYY.zip pattern (date range)
-                elif re.search(r'\d{6}-\d{6}\.zip$', href, re.IGNORECASE):
-                    weekly_patterns.append(href)
-                    logger.info(f"📅 Found DDMMYY-DDMMYY.zip pattern (updated data): {href}")
-            
-            # Convert to absolute URLs
+            # Generate URLs for recent dates (last 30 days) to find available files
             urls = []
-            for href in weekly_patterns:
-                if href.startswith('http'):
-                    urls.append(href)
-                else:
-                    urls.append(self.base_url.rstrip('/') + '/' + href.lstrip('/'))
+            current_date = datetime.now()
             
-            logger.info(f"🧭 Discovered {len(urls)} weekly zip links from index (DDMMYY patterns)")
+            # Check last 30 days for available files
+            for days_back in range(30):
+                check_date = current_date - timedelta(days=days_back)
+                
+                # Generate different URL patterns for this date
+                date_str = check_date.strftime('%d%m%y')
+                year = str(check_date.year)
+                
+                # Pattern 1: Single date DDMMYY.zip
+                single_url = f"{self.base_url}/website/{year}/commercial/{date_str}.zip"
+                
+                # Pattern 2: Weekly range (current week)
+                week_start = check_date - timedelta(days=check_date.weekday())  # Monday
+                week_end = week_start + timedelta(days=6)  # Sunday
+                week_start_str = week_start.strftime('%d%m%y')
+                week_end_str = week_end.strftime('%d%m%y')
+                weekly_url = f"{self.base_url}/website/{year}/commercial/{week_start_str}-{week_end_str}.zip"
+                
+                # Pattern 3: Previous week range
+                prev_week_start = week_start - timedelta(days=7)
+                prev_week_end = prev_week_start + timedelta(days=6)
+                prev_week_start_str = prev_week_start.strftime('%d%m%y')
+                prev_week_end_str = prev_week_end.strftime('%d%m%y')
+                prev_weekly_url = f"{self.base_url}/website/{year}/commercial/{prev_week_start_str}-{prev_week_end_str}.zip"
+                
+                # Add all patterns
+                potential_urls = [single_url, weekly_url, prev_weekly_url]
+                
+                # Check which URLs actually exist (quick HEAD request)
+                for url in potential_urls:
+                    if url not in urls:  # Avoid duplicates
+                        try:
+                            head_response = self.session.head(url, timeout=10, verify=False)
+                            if head_response.status_code == 200:
+                                urls.append(url)
+                                logger.info(f"📅 Found available file: {url}")
+                        except Exception:
+                            # File doesn't exist or error, skip silently
+                            pass
+            
+            # Also add some known patterns that commonly exist
+            known_patterns = [
+                f"{self.base_url}/website/2025/commercial/110825-240825.zip",
+                f"{self.base_url}/website/2025/commercial/010925.zip",
+                f"{self.base_url}/website/2024/commercial/010925.zip",
+            ]
+            
+            for url in known_patterns:
+                if url not in urls:
+                    try:
+                        head_response = self.session.head(url, timeout=10, verify=False)
+                        if head_response.status_code == 200:
+                            urls.append(url)
+                            logger.info(f"📅 Found known pattern: {url}")
+                    except Exception:
+                        pass
+            
+            logger.info(f"🧭 Generated {len(urls)} available ZIP URLs using pattern matching")
             for url in urls:
                 logger.info(f"   📎 {url}")
             return urls
+            
         except Exception as e:
-            logger.warning(f"Index parse error: {e}")
+            logger.warning(f"URL generation error: {e}")
             return []
 
     def _discover_last_7_days_urls(self) -> List[Dict[str, str]]:
@@ -1358,7 +1394,7 @@ class SRPCExtractor:
                 
                 # Upload ZIP file to S3 raw storage
                 if self.s3_uploader and self.s3_uploader.enabled:
-                    zip_s3_key = f"dsm_data/raw/SRPC/{year}/{month:02d}/{zip_filename}"
+                    zip_s3_key = f"dsm_data/raw/SRPC/{year}/{date.month:02d}/{zip_filename}"
                     try:
                         self.s3_uploader.auto_upload_file(str(zip_path), original_filename=zip_s3_key)
                         logger.info(f"📤 Uploaded ZIP to S3: {zip_s3_key}")

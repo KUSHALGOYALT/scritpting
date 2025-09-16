@@ -78,7 +78,7 @@ class NERPCDynamicExtractor:
         return weeks
 
     def extract_data_links_from_page(self) -> List[Dict]:
-        """Extract data file links from the NERPC data page"""
+        """Extract data file links from the NERPC data page using BeautifulSoup"""
         try:
             logger.info(f"🔍 Fetching NERPC data page: {self.data_page_url}")
             response = self.session.get(self.data_page_url, timeout=30)
@@ -87,7 +87,122 @@ class NERPCDynamicExtractor:
             soup = BeautifulSoup(response.text, 'html.parser')
             data_links = []
             
-            # Look for the table containing DSM/SRAS/TRAS data
+            # Step 1: Find the Data File column index dynamically
+            data_file_column_index = self._find_data_file_column_index(soup)
+            if data_file_column_index is None:
+                logger.warning("⚠️ Could not find 'Data File' column, trying fallback method...")
+                return self._extract_data_links_fallback(soup)
+            
+            logger.info(f"✅ Found 'Data File' column at index: {data_file_column_index}")
+            
+            # Step 2: Extract ZIP file links from the Data File column
+            tables = soup.find_all('table')
+            
+            for table_idx, table in enumerate(tables):
+                logger.info(f"📋 Processing table {table_idx + 1}...")
+                
+                # Get all rows in the table body
+                tbody = table.find('tbody') or table
+                rows = tbody.find_all('tr')
+                
+                for row_idx, row in enumerate(rows):
+                    cells = row.find_all(['td', 'th'])
+                    
+                    # Check if this row has enough columns
+                    if len(cells) > data_file_column_index:
+                        # Extract duration information from first column
+                        duration_cell = cells[0].get_text(strip=True) if len(cells) > 0 else ""
+                        
+                        # Get the Data File cell
+                        data_file_cell = cells[data_file_column_index]
+                        
+                        # Find all links in the data file cell
+                        links = data_file_cell.find_all('a', href=True)
+                        
+                        for link in links:
+                            href = link.get('href', '').strip()
+                            link_text = link.get_text(strip=True)
+                            
+                            # Check if it's a ZIP file (by extension or text)
+                            is_zip = (
+                                href.lower().endswith('.zip') or 
+                                link_text.lower().endswith('.zip') or
+                                '.zip' in href.lower() or
+                                '.zip' in link_text.lower() or
+                                'zip' in link_text.lower()
+                            )
+                            
+                            if is_zip:
+                                # Build full URL if relative
+                                if href.startswith('http'):
+                                    full_url = href
+                                else:
+                                    full_url = urllib.parse.urljoin(self.base_url, href)
+                                
+                                # Extract filename from URL or link text
+                                if link_text and link_text.lower().endswith('.zip'):
+                                    filename = link_text
+                                else:
+                                    filename = os.path.basename(urllib.parse.urlparse(full_url).path)
+                                    if not filename.endswith('.zip'):
+                                        filename += '.zip'
+                                
+                                # Determine if it's a revised file
+                                is_revised = any(keyword in filename.upper() for keyword in ['R1', 'REV1', 'REVISED', 'DSMR1'])
+                                
+                                data_links.append({
+                                    'url': full_url,
+                                    'filename': filename,
+                                    'duration': duration_cell,
+                                    'is_revised': is_revised,
+                                    'link_text': link_text,
+                                    'source': 'nerpc_page',
+                                    'table_index': table_idx,
+                                    'row_index': row_idx
+                                })
+                                
+                                logger.info(f"📎 Found data link: {filename} ({'Revised' if is_revised else 'Regular'})")
+            
+            logger.info(f"📊 Found {len(data_links)} data file links using BeautifulSoup")
+            return data_links
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting data links: {e}")
+            return []
+
+    def _find_data_file_column_index(self, soup: BeautifulSoup) -> Optional[int]:
+        """Find the column index for the 'Data File' header"""
+        try:
+            logger.info("🔍 Searching for 'Data File' column header...")
+            
+            # Look for table headers containing 'Data File'
+            tables = soup.find_all('table')
+            
+            for table in tables:
+                # Find header row
+                header_row = table.find('tr')
+                if header_row:
+                    headers = header_row.find_all(['th', 'td'])
+                    for i, header in enumerate(headers):
+                        header_text = header.get_text(strip=True).lower()
+                        if 'data file' in header_text:
+                            logger.info(f"✅ Found 'Data File' column in table at index {i}: '{header.get_text(strip=True)}'")
+                            return i
+            
+            logger.warning("⚠️ No 'Data File' column found in any table")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Error finding data file column: {e}")
+            return None
+
+    def _extract_data_links_fallback(self, soup: BeautifulSoup) -> List[Dict]:
+        """Fallback method to extract data links if Data File column is not found"""
+        try:
+            logger.info("🔄 Using fallback method to extract data links...")
+            data_links = []
+            
+            # Look for the table containing DSM/SRAS/TRAS data (original logic)
             tables = soup.find_all('table')
             
             for table in tables:
@@ -126,16 +241,16 @@ class NERPCDynamicExtractor:
                                     'duration': duration_cell,
                                     'is_revised': is_revised,
                                     'link_text': link_text,
-                                    'source': 'nerpc_page'
+                                    'source': 'nerpc_page_fallback'
                                 })
                                 
-                                logger.info(f"📎 Found data link: {filename} ({'Revised' if is_revised else 'Regular'})")
+                                logger.info(f"📎 Found data link (fallback): {filename} ({'Revised' if is_revised else 'Regular'})")
             
-            logger.info(f"📊 Found {len(data_links)} data file links")
+            logger.info(f"📊 Found {len(data_links)} data file links using fallback method")
             return data_links
             
         except Exception as e:
-            logger.error(f"❌ Error extracting data links: {e}")
+            logger.error(f"❌ Error in fallback extraction: {e}")
             return []
 
     def extract_station_info_from_data(self, file_info: Dict, filename: str) -> Dict:
@@ -326,10 +441,10 @@ class NERPCDynamicExtractor:
                 # Create S3 keys with new structure
             from datetime import datetime as _dt
             _week = _dt.now().isocalendar().week
-                # Extract clean station name (remove NERPC_ prefix)
-                clean_station_name = station_name.replace('NERPC_', '') if station_name.startswith('NERPC_') else station_name
-                csv_key = f"dsm_data/raw/NERPC/{year}/{month:02d}/{csv_filename}"
-                parquet_key = f"dsm_data/parquet/NERPC/{clean_station_name}/{year}/{month:02d}/{parquet_filename}"
+            # Extract clean station name (remove NERPC_ prefix)
+            clean_station_name = station_name.replace('NERPC_', '') if station_name.startswith('NERPC_') else station_name
+            csv_key = f"dsm_data/raw/NERPC/{year}/{month:02d}/{csv_filename}"
+            parquet_key = f"dsm_data/parquet/NERPC/{clean_station_name}/{year}/{month:02d}/{parquet_filename}"
             
             s3_results = []
             

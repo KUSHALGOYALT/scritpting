@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import re
-from typing import Optional
+from typing import Optional, List, Dict
 from bs4 import BeautifulSoup
 import json
 import typing
@@ -200,7 +200,6 @@ class NRLDCWorkingDSAExtractor:
             logger.error(f"❌ Error getting DSA links: {e}")
             return []
 
-<<<<<<< HEAD
     def get_csv_links(self):
         """Get Supporting CSV links from the main DSA page (CSV-only)."""
         try:
@@ -238,10 +237,10 @@ class NRLDCWorkingDSAExtractor:
 
     def extract_week_from_url(self, url):
         """Extract week information from URL"""
-=======
+        pass
+        
     def extract_revision_info(self, filename):
         """Extract revision information from filename"""
->>>>>>> 42e63fd5c0fa2c187891b8039d31d109f4aad45e
         try:
             # Look for revision patterns (case-insensitive)
             revision_patterns = [
@@ -380,56 +379,6 @@ class NRLDCWorkingDSAExtractor:
             
             logger.info(f"✅ Downloaded: {dsa_link['filename']} ({len(response.content)} bytes)")
             
-<<<<<<< HEAD
-            # Convert XLS to per-sheet CSVs, extract Station name from sheet content
-            csv_path = None
-            try:
-                workbook = pd.read_excel(file_path, sheet_name=None, engine='xlrd')
-                if isinstance(workbook, dict):
-                    for sheet_name, df_sheet in workbook.items():
-                        try:
-                            df_local = df_sheet.dropna(how='all')
-                            if df_local.empty:
-                                continue
-                            # If second row (index 1) contains 'Stn_Name' as any cell, accept sheet; else skip
-                            try:
-                                second_row = df_local.iloc[1] if len(df_local) > 1 else None
-                                has_stn_name_header = False
-                                if second_row is not None:
-                                    for cell in second_row.tolist():
-                                        if isinstance(cell, str) and cell.strip().lower() == 'stn_name':
-                                            has_stn_name_header = True
-                                            break
-                                if not has_stn_name_header:
-                                    logger.info(f"⏭️ Skipping sheet '{sheet_name}' (no 'Stn_Name' in second row)")
-                                    continue
-                            except Exception:
-                                logger.info(f"⏭️ Skipping sheet '{sheet_name}' (second row check failed)")
-                                continue
-                            # Detect station label inside sheet (e.g., 'Station : BSPHCL')
-                            station_name = self._extract_station_from_sheet(df_local) or sheet_name
-                            df_local['Station_Name'] = str(station_name).strip()
-                            out_csv = dsa_link['filename'].replace('.xls', f"_{sheet_name}.csv")
-                            import tempfile
-                            with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_file:
-                                df_local.to_csv(csv_file.name, index=False)
-                                out_path = csv_file.name
-                            logger.info(f"✅ Wrote sheet CSV: {out_csv} ({len(df_local)} rows, {len(df_local.columns)} cols)")
-                            if csv_path is None:
-                                csv_path = str(out_path)
-                        except Exception as se:
-                            logger.warning(f"⚠️ Could not write sheet {sheet_name}: {se}")
-                # Fallback to single-sheet if no sheets exported
-                if csv_path is None:
-                    df = pd.read_excel(file_path, engine='xlrd')
-                    csv_filename = dsa_link['filename'].rsplit('.', 1)[0] + '.csv'
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_file:
-                        df.to_csv(csv_file.name, index=False)
-                        out_path = csv_file.name
-                    logger.info(f"✅ Converted XLS to CSV: {csv_filename} ({len(df)} rows, {len(df.columns)} cols)")
-                    csv_path = str(out_path)
-=======
             # Convert XLS to CSV preserving columns and add region mapping
             csv_path = None
             try:
@@ -453,12 +402,11 @@ class NRLDCWorkingDSAExtractor:
                     
                     df = df_mapped
                 
-                csv_filename = dsa_link['filename'].rsplit('.', 1)[0] + '.csv'
+                    csv_filename = dsa_link['filename'].rsplit('.', 1)[0] + '.csv'
                 csv_path = self.local_storage_dir / csv_filename
                 df.to_csv(csv_path, index=False)
                 logger.info(f"✅ Converted XLS to CSV with region mapping: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
                 csv_path = str(csv_path)
->>>>>>> 42e63fd5c0fa2c187891b8039d31d109f4aad45e
             except Exception as e:
                 logger.warning(f"⚠️ Sheet parse failed: {e}")
                 csv_path = str(file_path)
@@ -1684,7 +1632,7 @@ class NRLDCWorkingDSAExtractor:
                 
                 import tempfile
                 tmp_pq = Path(tempfile.mktemp(suffix='.parquet'))
-                
+                    
                 try:
                     pq_df = _sanitize_for_parquet(part_df)
                     pq_df.to_parquet(tmp_pq, index=False)
@@ -1909,7 +1857,7 @@ class NRLDCWorkingDSAExtractor:
             return False
 
     def generate_supporting_urls(self):
-        """Generate Supporting_files.xls URLs for past 7 days with dynamic year detection"""
+        """Generate Supporting_files.xls URLs for past 7 days with dynamic year detection and flexible filename discovery"""
         urls = []
         weeks = self.get_past_7_days_weeks()
         available_years = self._detect_available_years()
@@ -1921,18 +1869,157 @@ class NRLDCWorkingDSAExtractor:
             
             # Try each available year
             for year in available_years:
-                path = f"/comm/{year}/dsa/{start}-{end}(WK-{week_num})/Supporting_files.xls"
-                urls.append({
-                    'url': f"{self.base_url}{path}",
-                    'filename': f"Supporting_files_{start}-{end}_WK{week_num}.xls",
-                    'week_key': f"{start}-{end}_WK{week_num}",
-                    'year': year
-                })
+                # Generate URLs with flexible filename patterns
+                flexible_urls = self._generate_flexible_filename_urls(year, start, end, week_num)
+                urls.extend(flexible_urls)
         
         return urls
 
+    def _generate_flexible_filename_urls(self, year, start, end, week_num):
+        """Generate URLs by dynamically discovering filename patterns from the DSA page"""
+        urls = []
+        base_path = f"/comm/{year}/dsa/{start}-{end}(WK-{week_num})"
+        week_key = f"{start}-{end}_WK{week_num}"
+        
+        # Try to learn working patterns first (most efficient)
+        discovered_patterns = self._learn_filename_patterns()
+        
+        # If no patterns learned, try to discover from DSA page
+        if not discovered_patterns:
+            discovered_patterns = self._discover_filename_patterns(year, start, end, week_num)
+        
+        # If still no patterns, use intelligent pattern generation as last resort
+        if not discovered_patterns:
+            discovered_patterns = self._generate_intelligent_patterns(year, start, end, week_num)
+        
+        # Generate URLs for discovered patterns
+        for pattern in discovered_patterns:
+            urls.append({
+                'url': f"{self.base_url}{base_path}/{pattern}",
+                'filename': pattern,
+                'week_key': week_key,
+                'year': year,
+                'base_filename': pattern.split('_')[0] if '_' in pattern else pattern.split('.')[0]
+            })
+        
+        logger.info(f"🔍 Generated {len(urls)} dynamic filename URLs for {week_key}")
+        return urls
+
+    def _discover_filename_patterns(self, year, start, end, week_num):
+        """Dynamically discover filename patterns from the DSA page content"""
+        try:
+            # Try to find filename patterns in the DSA page content
+            resp = self.session.get(self.dsa_page_url, timeout=10)
+            if resp.status_code != 200:
+                return []
+            
+            text = resp.text.lower()
+            patterns = []
+            
+            # Look for any .xls file references in the page
+            xls_matches = re.findall(r'([a-zA-Z_\-\(\)]+\.xls)', text)
+            
+            # Filter for likely data file patterns
+            for match in xls_matches:
+                if any(keyword in match for keyword in ['supporting', 'data', 'files', 'weekly', 'dsa', 'station']):
+                    patterns.append(match)
+            
+            # Remove duplicates and return unique patterns
+            unique_patterns = list(set(patterns))
+            logger.debug(f"🔍 Discovered {len(unique_patterns)} filename patterns from DSA page")
+            return unique_patterns[:10]  # Limit to 10 patterns
+            
+        except Exception as e:
+            logger.debug(f"🔍 Filename discovery failed: {e}")
+            return []
+
+    def _generate_intelligent_patterns(self, year, start, end, week_num):
+        """Generate intelligent filename patterns based on common data file naming conventions"""
+        patterns = []
+        
+        # Common base names that data files might use
+        base_names = ['Supporting_files', 'Data_files', 'Weekly_data', 'DSA_files', 'Station_data', 'Files', 'Data']
+        
+        # Common revision/version patterns
+        revision_patterns = [
+            '',           # No revision
+            '_r1', '_r2', '_r3', '_R1', '_R2', '_R3',  # Simple revision
+            '_r_1', '_r_2', '_R_1', '_R_2',            # Underscore revision
+            '_rev1', '_rev2', '_REV1', '_REV2',         # Revision with rev
+            '_revision1', '_revision2',                 # Full revision
+            '_v1', '_v2', '_V1', '_V2',                 # Version
+            '_version1', '_version2',                    # Full version
+            '(r1)', '(r2)', '(R1)', '(R2)',             # Parentheses revision
+            '(rev1)', '(rev2)', '(REV1)', '(REV2)',     # Parentheses with rev
+        ]
+        
+        # Generate combinations
+        for base in base_names:
+            for revision in revision_patterns:
+                pattern = f"{base}{revision}.xls"
+                patterns.append(pattern)
+                # Also add lowercase and uppercase variants
+                patterns.append(pattern.lower())
+                patterns.append(pattern.upper())
+        
+        # Remove duplicates and limit
+        unique_patterns = list(set(patterns))
+        logger.debug(f"🔍 Generated {len(unique_patterns)} intelligent patterns")
+        return unique_patterns[:20]  # Limit to 20 patterns
+
+    def _learn_filename_patterns(self):
+        """Learn filename patterns by testing common variations and remembering what works"""
+        try:
+            # Get a sample week to test patterns
+            weeks = self.get_past_7_days_weeks()
+            if not weeks:
+                return []
+            
+            sample_week = weeks[0]
+            start = datetime.strptime(sample_week['start_date'], '%Y-%m-%d').strftime('%d%m%y')
+            end = datetime.strptime(sample_week['end_date'], '%Y-%m-%d').strftime('%d%m%y')
+            week_num = sample_week['week_num']
+            
+            # Try different years to find working patterns
+            available_years = self._detect_available_years()
+            
+            working_patterns = []
+            for year in available_years[:2]:  # Test first 2 years
+                base_path = f"/comm/{year}/dsa/{start}-{end}(WK-{week_num})"
+                
+                # Test a minimal set of the most likely patterns
+                test_patterns = [
+                    'Supporting_files.xls',
+                    'supporting_files.xls',
+                    'Data_files.xls',
+                    'Weekly_data.xls',
+                    'Files.xls',
+                    'Data.xls'
+                ]
+                
+                for pattern in test_patterns:
+                    test_url = f"{self.base_url}{base_path}/{pattern}"
+                    try:
+                        response = self.session.head(test_url, timeout=3)
+                        if response.status_code == 200:
+                            working_patterns.append(pattern)
+                            logger.info(f"✅ Learned working pattern: {pattern}")
+                            break  # Found a working pattern for this year
+                    except:
+                        continue
+                
+                if working_patterns:
+                    break  # Found working patterns, no need to test more years
+            
+            logger.info(f"🎓 Learned {len(working_patterns)} working filename patterns")
+            return working_patterns
+            
+        except Exception as e:
+            logger.debug(f"🎓 Pattern learning failed: {e}")
+            return []
+
     def parse_weeks_from_dsa_page(self):
-        """Parse week tokens like 110825-170825(WK-20) from the DSA page and construct URLs."""
+        """Parse week tokens like 110825-170825(WK-20) from the DSA page and construct URLs with flexible filename discovery."""
         try:
             resp = self.session.get(self.dsa_page_url, timeout=20)
             if resp.status_code != 200:
@@ -1942,17 +2029,244 @@ class NRLDCWorkingDSAExtractor:
             # Find tokens like 110825-170825(WK-20)
             matches = re.findall(r"(\d{6})-(\d{6})\(WK-?(\d{1,2})\)", text, flags=re.I)
             items = []
+            
+            # Get available years for flexible URL generation
+            available_years = self._detect_available_years()
+            
             for start, end, wk in matches:
-                path = f"/comm/2021-22/dsa/{start}-{end}(WK-{wk})/Supporting_files.xls"
-                items.append({
-                    'url': f"{self.base_url}{path}",
-                    'filename': f"Supporting_files_{start}-{end}_WK{wk}.xls",
-                    'week_key': f"{start}-{end}_WK{wk}"
-                })
-            logger.info(f"📅 Parsed {len(items)} Supporting_files URLs from DSA page")
+                # Generate flexible URLs for each year
+                for year in available_years[:3]:  # Limit to first 3 years to avoid too many URLs
+                    flexible_urls = self._generate_flexible_filename_urls(year, start, end, wk)
+                    items.extend(flexible_urls)
+            
+            logger.info(f"📅 Parsed {len(matches)} week tokens and generated {len(items)} flexible URLs from DSA page")
             return items
         except Exception as e:
             logger.error(f"❌ Failed to parse DSA page weeks: {e}")
+            return []
+
+    def _find_working_filename(self, urls):
+        """Find the first working filename from a list of URLs by testing them with HEAD requests"""
+        import requests
+        
+        for url_info in urls:
+            try:
+                response = self.session.head(url_info['url'], timeout=5)
+                if response.status_code == 200:
+                    logger.info(f"✅ Found working filename: {url_info['filename']}")
+                    return url_info
+            except Exception as e:
+                logger.debug(f"❌ URL failed: {url_info['filename']} - {e}")
+                continue
+        
+        logger.warning(f"⚠️ No working filename found from {len(urls)} patterns")
+        return None
+
+    def find_file_links_by_position(self, soup: BeautifulSoup, target_position: str = "supp_files") -> List[Dict[str, str]]:
+        """
+        Find file links by their structural position in the HTML table
+        
+        Args:
+            soup: BeautifulSoup object of the page
+            target_position: Target identifier - can be:
+                - "supp_files": Links with name/id 'supp_files'
+                - "column_index": Links in a specific column index
+                - "anchor_class": Links with specific CSS class
+                - "last_column": Links in the last column of each row
+        """
+        try:
+            logger.info(f"🔍 Searching for file links by position: {target_position}")
+            file_links = []
+            
+            # Method 1: Search by anchor name/id
+            if target_position == "supp_files":
+                # Look for anchors with name or id 'supp_files'
+                anchors = soup.find_all('a', {'name': 'supp_files'}) + soup.find_all('a', {'id': 'supp_files'})
+                
+                for anchor in anchors:
+                    href = anchor.get('href', '').strip()
+                    if href:
+                        filename = os.path.basename(href) or anchor.get_text(strip=True)
+                        file_links.append({
+                            'url': href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}",
+                            'filename': filename,
+                            'position': 'supp_files',
+                            'anchor_text': anchor.get_text(strip=True),
+                            'row_context': self._get_row_context(anchor)
+                        })
+                        logger.info(f"📎 Found file by supp_files: {filename}")
+            
+            # Method 2: Search by column index
+            elif target_position.startswith("column_"):
+                column_index = int(target_position.split("_")[1])
+                tables = soup.find_all('table')
+                
+                for table_idx, table in enumerate(tables):
+                    rows = table.find_all('tr')
+                    for row_idx, row in enumerate(rows):
+                        cells = row.find_all(['td', 'th'])
+                        if len(cells) > column_index:
+                            target_cell = cells[column_index]
+                            links = target_cell.find_all('a', href=True)
+                            
+                            for link in links:
+                                href = link.get('href', '').strip()
+                                if href:
+                                    filename = os.path.basename(href) or link.get_text(strip=True)
+                                    file_links.append({
+                                        'url': href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}",
+                                        'filename': filename,
+                                        'position': f'column_{column_index}',
+                                        'table': table_idx,
+                                        'row': row_idx,
+                                        'anchor_text': link.get_text(strip=True),
+                                        'row_context': self._get_row_context(link)
+                                    })
+                                    logger.info(f"📎 Found file by column {column_index}: {filename}")
+            
+            # Method 3: Search by CSS class
+            elif target_position.startswith("class_"):
+                class_name = target_position.split("_", 1)[1]
+                anchors = soup.find_all('a', {'class': class_name})
+                
+                for anchor in anchors:
+                    href = anchor.get('href', '').strip()
+                    if href:
+                        filename = os.path.basename(href) or anchor.get_text(strip=True)
+                        file_links.append({
+                            'url': href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}",
+                            'filename': filename,
+                            'position': f'class_{class_name}',
+                            'anchor_text': anchor.get_text(strip=True),
+                            'row_context': self._get_row_context(anchor)
+                        })
+                        logger.info(f"📎 Found file by class {class_name}: {filename}")
+            
+            # Method 4: Search in last column of each row
+            elif target_position == "last_column":
+                tables = soup.find_all('table')
+                
+                for table_idx, table in enumerate(tables):
+                    rows = table.find_all('tr')
+                    for row_idx, row in enumerate(rows):
+                        cells = row.find_all(['td', 'th'])
+                        if cells:  # Ensure row has cells
+                            last_cell = cells[-1]
+                            links = last_cell.find_all('a', href=True)
+                            
+                            for link in links:
+                                href = link.get('href', '').strip()
+                                if href:
+                                    filename = os.path.basename(href) or link.get_text(strip=True)
+                                    file_links.append({
+                                        'url': href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}",
+                                        'filename': filename,
+                                        'position': 'last_column',
+                                        'table': table_idx,
+                                        'row': row_idx,
+                                        'anchor_text': link.get_text(strip=True),
+                                        'row_context': self._get_row_context(link)
+                                    })
+                                    logger.info(f"📎 Found file in last column: {filename}")
+            
+            # Method 5: Search for specific file patterns (fallback)
+            elif target_position == "file_pattern":
+                # Look for common file extensions
+                file_extensions = ['.xls', '.xlsx', '.csv', '.zip', '.pdf']
+                all_links = soup.find_all('a', href=True)
+                
+                for link in all_links:
+                    href = link.get('href', '').strip()
+                    if any(href.lower().endswith(ext) for ext in file_extensions):
+                        filename = os.path.basename(href) or link.get_text(strip=True)
+                        file_links.append({
+                            'url': href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}",
+                            'filename': filename,
+                            'position': 'file_pattern',
+                            'anchor_text': link.get_text(strip=True),
+                            'row_context': self._get_row_context(link)
+                        })
+                        logger.info(f"📎 Found file by pattern: {filename}")
+            
+            logger.info(f"📊 Found {len(file_links)} file links by position '{target_position}'")
+            return file_links
+            
+        except Exception as e:
+            logger.error(f"❌ Error finding file links by position: {e}")
+            return []
+
+    def _get_row_context(self, element) -> str:
+        """Get context information about the row containing the element"""
+        try:
+            # Find the parent row
+            row = element.find_parent('tr')
+            if row:
+                cells = row.find_all(['td', 'th'])
+                if cells:
+                    # Get text from first few cells for context
+                    context_cells = cells[:3]  # First 3 cells
+                    context_texts = [cell.get_text(strip=True) for cell in context_cells if cell.get_text(strip=True)]
+                    return " | ".join(context_texts)
+            return "No context available"
+        except:
+            return "Context extraction failed"
+
+    def extract_week_urls_from_dsa(self) -> List[Dict[str, str]]:
+        """Extract week URLs from the main DSA page using position-based discovery"""
+        try:
+            logger.info("🔍 Fetching DSA page to extract week URLs using position-based discovery...")
+            response = self.session.get(self.dsa_page_url, timeout=20)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            week_urls = []
+            
+            # Look for dropdown with name="wk"
+            dropdown = soup.select_one('select[name="wk"]')
+            if dropdown:
+                options = dropdown.find_all('option')
+                for option in options:
+                    value = option.get('value', '').strip()
+                    text = option.get_text(strip=True)
+                    
+                    if value and value != '':
+                        # Construct week URL
+                        week_url = f"{self.base_url}/comm/{value}/"
+                        week_urls.append({
+                            'url': week_url,
+                            'week_text': text,
+                            'week_value': value
+                        })
+            
+            logger.info(f"📅 Found {len(week_urls)} week URLs from DSA page using position-based discovery")
+            return week_urls
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting week URLs using position-based discovery: {e}")
+            return []
+
+    def fetch_week_page_and_extract_files(self, week_info: Dict[str, str], target_position: str = "supp_files") -> List[Dict[str, str]]:
+        """Fetch a week's page and extract files using position-based discovery"""
+        try:
+            logger.info(f"🔍 Fetching week page: {week_info['week_text']}")
+            response = self.session.get(week_info['url'], timeout=20)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Find file links by position
+            file_links = self.find_file_links_by_position(soup, target_position)
+            
+            # Add week context to each file link
+            for file_link in file_links:
+                file_link['week_text'] = week_info['week_text']
+                file_link['week_value'] = week_info['week_value']
+            
+            logger.info(f"📎 Found {len(file_links)} files for week {week_info['week_text']}")
+            return file_links
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching week page {week_info['week_text']}: {e}")
             return []
         
     def download_supporting_xls(self, item):
@@ -2012,17 +2326,10 @@ class NRLDCWorkingDSAExtractor:
             with open(xls_path, 'wb') as f:
                 f.write(resp.content)
             logger.info(f"✅ Saved XLS: {xls_path}")
-<<<<<<< HEAD
+            
             # Upload original supporting XLS to raw/NRLDC/supporting_files
             try:
                 if self.s3_uploader and hasattr(self.s3_uploader, 'auto_upload_file'):
-                    # Derive month from any DDMMYY token in filename, else use current month
-                    import re
-                    from datetime import datetime as _dt
-                    mm = f"{_dt.now().month:02d}"
-                    m = re.search(r"(\d{2})(\d{2})(\d{2})", filename)
-                    if m:
-                        mm = m.group(2)
                     # Extract year and month from filename for proper S3 path
                     import re
                     
@@ -2137,42 +2444,30 @@ class NRLDCWorkingDSAExtractor:
                 # Fallback single sheet if nothing written
                 if csv_saved is None:
                     df = pd.read_excel(xls_path, engine='xlrd')
+                    
+                    # Add region mapping if station name column exists
+                    station_col = None
+                    for col in df.columns:
+                        if 'stn' in str(col).lower() or 'station' in str(col).lower() or col == df.columns[0]:
+                            station_col = col
+                            break
+                    
+                    if station_col is not None:
+                        # Apply region mapping
+                        df_mapped = self.region_mapper.map_dataframe_regions(df, station_col)
+                        logger.info(f"✅ Added region mapping to {len(df_mapped)} rows")
+                        
+                        # Get region summary
+                        region_summary = self.region_mapper.get_region_summary(df_mapped, station_col)
+                        logger.info(f"📊 Region summary: {region_summary['by_group']}")
+                        
+                        df = df_mapped
+                    
                     csv_filename = filename.replace('.xls', '.csv')
-                    import tempfile
-                    csv_path = Path(tempfile.mktemp(suffix='.csv'))
+                    csv_path = self.local_storage_dir / csv_filename
                     df.to_csv(csv_path, index=False)
-                    logger.info(f"✅ Wrote CSV: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
+                    logger.info(f"✅ Wrote CSV with region mapping: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
                     csv_saved = str(csv_path)
-=======
-
-            # Convert to CSV with all columns intact and add region mapping
-            try:
-                df = pd.read_excel(xls_path, engine='xlrd')
-                
-                # Add region mapping if station name column exists
-                station_col = None
-                for col in df.columns:
-                    if 'stn' in str(col).lower() or 'station' in str(col).lower() or col == df.columns[0]:
-                        station_col = col
-                        break
-                
-                if station_col is not None:
-                    # Apply region mapping
-                    df_mapped = self.region_mapper.map_dataframe_regions(df, station_col)
-                    logger.info(f"✅ Added region mapping to {len(df_mapped)} rows")
-                    
-                    # Get region summary
-                    region_summary = self.region_mapper.get_region_summary(df_mapped, station_col)
-                    logger.info(f"📊 Region summary: {region_summary['by_group']}")
-                    
-                    df = df_mapped
-                
-                csv_filename = filename.replace('.xls', '.csv')
-                csv_path = self.local_storage_dir / csv_filename
-                df.to_csv(csv_path, index=False)
-                logger.info(f"✅ Wrote CSV with region mapping: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
-                csv_saved = str(csv_path)
->>>>>>> 42e63fd5c0fa2c187891b8039d31d109f4aad45e
             except Exception as ce:
                 logger.warning(f"⚠️ Could not parse XLS workbook: {ce}")
                 csv_saved = None
@@ -2603,14 +2898,30 @@ class NRLDCWorkingDSAExtractor:
             downloaded = []
             all_dataframes = []  # Collect all dataframes for parquet export
             
-            # Limit attempts to keep it fast
-            for item in items[:10]:
-                res = self.download_supporting_xls(item)
-                if res:
-                    downloaded.append(res)
-                    # Extract dataframes from the result if available
-                    if isinstance(res, dict) and 'dataframes' in res:
-                        all_dataframes.extend(res['dataframes'])
+            # Group items by week_key to test multiple filename patterns per week
+            week_groups = {}
+            for item in items[:50]:  # Increased limit since we're being smarter about testing
+                week_key = item['week_key']
+                if week_key not in week_groups:
+                    week_groups[week_key] = []
+                week_groups[week_key].append(item)
+            
+            downloaded = []
+            all_dataframes = []  # Collect all dataframes for parquet export
+            
+            # Process each week group, finding the best working filename
+            for week_key, week_items in list(week_groups.items())[:10]:  # Limit to 10 weeks
+                logger.info(f"🔍 Testing {len(week_items)} filename patterns for week {week_key}")
+                
+                # Find the working filename for this week
+                working_item = self._find_working_filename(week_items)
+                if working_item:
+                    res = self.download_supporting_xls(working_item)
+                    if res:
+                        downloaded.append(res)
+                        # Extract dataframes from the result if available
+                        if isinstance(res, dict) and 'dataframes' in res:
+                            all_dataframes.extend(res['dataframes'])
                 else:
                     logger.info(f"⏭️ Skipped/failed: {item['filename']}")
 
@@ -2631,6 +2942,122 @@ class NRLDCWorkingDSAExtractor:
         # No master dataset creation needed
         logger.info(f"🎉 Supporting extraction complete. Files: {len(downloaded)}")
         return downloaded
+
+    def run_position_based_extraction(self, target_position: str = "supp_files", max_weeks: int = 10):
+        """
+        Run extraction using position-based file discovery while preserving all existing mapping logic
+        
+        Args:
+            target_position: How to identify files ('supp_files', 'last_column', 'column_3', etc.)
+            max_weeks: Maximum number of weeks to process
+        """
+        logger.info(f"🚀 Starting NRLDC position-based extraction (position: {target_position})")
+        
+        # Step 1: Extract week URLs from DSA page using position-based discovery
+        week_urls = self.extract_week_urls_from_dsa()
+        if not week_urls:
+            logger.error("❌ No week URLs found")
+            return []
+        
+        # Step 2: Process each week page
+        results = []
+        processed_weeks = 0
+        all_dataframes = []  # Collect all dataframes for parquet export
+        
+        for week_info in week_urls[:max_weeks]:
+            logger.info(f"📅 Processing week: {week_info['week_text']}")
+            
+            # Step 3: Fetch the week page and extract files using position-based discovery
+            file_links = self.fetch_week_page_and_extract_files(week_info, target_position)
+            
+            if not file_links:
+                logger.warning(f"⚠️ No files found for week: {week_info['week_text']}")
+                continue
+            
+            # Step 4: Process each file using existing download logic
+            for file_info in file_links:
+                # Convert file_info to the format expected by existing download_supporting_xls method
+                item = {
+                    'url': file_info['url'],
+                    'filename': file_info['filename'],
+                    'week_key': f"{week_info['week_value']}_{file_info['filename']}",
+                    'week_text': week_info['week_text'],
+                    'position': file_info.get('position', 'unknown'),
+                    'row_context': file_info.get('row_context', '')
+                }
+                
+                # Use existing download logic (preserves all mapping and processing)
+                try:
+                    res = self.download_supporting_xls(item)
+                    if res:
+                        results.append(res)
+                        # Extract dataframes from the result if available
+                        if isinstance(res, dict) and 'dataframes' in res:
+                            all_dataframes.extend(res['dataframes'])
+                        logger.info(f"✅ Downloaded: {file_info['filename']} (position: {file_info.get('position', 'unknown')})")
+                    else:
+                        logger.info(f"⏭️ Skipped/failed: {file_info['filename']}")
+                        results.append({
+                            'filename': file_info['filename'],
+                            'action': 'failed',
+                            'position': file_info.get('position', 'unknown'),
+                            'week': week_info['week_text']
+                        })
+                except Exception as e:
+                    logger.error(f"❌ Error processing {file_info['filename']}: {e}")
+                    results.append({
+                        'filename': file_info['filename'],
+                        'action': 'error',
+                        'position': file_info.get('position', 'unknown'),
+                        'week': week_info['week_text'],
+                        'error': str(e)
+                    })
+            
+            processed_weeks += 1
+        
+        # Step 5: Export parquet files if we have dataframes (preserve existing logic)
+        if all_dataframes:
+            try:
+                logger.info(f"🔄 Combining {len(all_dataframes)} dataframes for parquet export...")
+                combined_df = pd.concat(all_dataframes, ignore_index=True)
+                self._export_partitioned_to_s3(combined_df)
+                logger.info("✅ Parquet export completed")
+            except Exception as e:
+                logger.warning(f"⚠️ Parquet export failed: {e}")
+        
+        # Step 6: Log results
+        self._log_position_results(results, target_position)
+        logger.info(f"🎉 Position-based extraction complete. Files: {len(results)}")
+        return results
+
+    def _log_position_results(self, results: List[Dict], target_position: str):
+        """Log position-based extraction results"""
+        logger.info(f"\n📊 POSITION-BASED EXTRACTION RESULTS ({target_position}):")
+        logger.info("=" * 100)
+        
+        # Group by action
+        by_action = {}
+        for result in results:
+            action = result.get('action', 'unknown')
+            if action not in by_action:
+                by_action[action] = []
+            by_action[action].append(result)
+        
+        for action, action_results in by_action.items():
+            logger.info(f"\n{action.upper()}: {len(action_results)} files")
+            logger.info("-" * 50)
+            for result in action_results[:5]:  # Show first 5 files
+                filename = result.get('filename', 'unknown')
+                position = result.get('position', 'unknown')
+                week = result.get('week', 'unknown')
+                logger.info(f"  {filename} | Position: {position} | Week: {week}")
+            
+            if len(action_results) > 5:
+                logger.info(f"  ... and {len(action_results) - 5} more files")
+        
+        logger.info("=" * 100)
+        total_files = len(results)
+        logger.info(f"Total files processed: {total_files}")
 
 def main():
     """Main execution function"""

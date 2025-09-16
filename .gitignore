@@ -28,7 +28,29 @@ energy_data_extractors/data/*.json
 energy_data_extractors/mapped_data/*.csv
 energy_data_extractors/mapped_data/*.json
 
-# Logs
+# Download directories
+energy_data_extractors/extractors/*/downloads/
+energy_data_extractors/extractors/*/local_data/
+energy_data_extractors/extractors/*/data/
+
+# Temporary and debug files
+*.html
+*.xls
+*.xlsx
+*.zip
+*.csv
+*.json
+*.parquet
+
+# Test and demo files (keep documentation but exclude large files)
+energy_data_extractors/extractors/*/test_*.py
+energy_data_extractors/extractors/*/demo_*.py
+energy_data_extractors/extractors/*/debug_*.py
+energy_data_extractors/extractors/*/download_*.py
+energy_data_extractors/extractors/*/extract_*.py
+energy_data_extractors/extractors/*/check_*.py
+
+d# Logs
 *.log
 
 # Misc
