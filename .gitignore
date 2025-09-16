@@ -50,7 +50,7 @@ energy_data_extractors/extractors/*/download_*.py
 energy_data_extractors/extractors/*/extract_*.py
 energy_data_extractors/extractors/*/check_*.py
 
-d# Logs
+# Logs
 *.log
 
 # Misc
