@@ -75,7 +75,7 @@ class ERLDCDynamicExtractor:
         """Load list of already processed weeks (no local storage)"""
         # For now, we'll skip file tracking to avoid local storage
         # In production, this could be stored in S3 or a database
-            return {}
+        return {}
 
     def save_processed_weeks(self):
         """Save list of processed weeks (no local storage)"""

@@ -55,7 +55,7 @@ class NERPCDynamicExtractor:
         """Load list of already processed files from S3"""
         # For now, we'll skip file tracking to avoid local storage
         # In production, this could be stored in S3 or a database
-                self.processed_files = set()
+        self.processed_files = set()
     def save_processed_files(self):
         """Save list of processed files to S3"""
         # For now, we'll skip file tracking to avoid local storage
@@ -1080,14 +1080,14 @@ class NERPCDynamicExtractor:
                 all_extracted_files.extend(consolidated_files)
                 
                 # Upload consolidated station files to S3
-                    s3_results = []
+                s3_results = []
                 for file_info in consolidated_files:
-                        try:
-                            # Upload with organized S3 structure
-                            upload_results = self.upload_to_organized_s3(file_info, filename, link_info)
-                            s3_results.extend(upload_results)
-                        except Exception as e:
-                            logger.warning(f"⚠️ S3 upload failed for {file_info['local_parquet']}: {e}")
+                    try:
+                        # Upload with organized S3 structure
+                        upload_results = self.upload_to_organized_s3(file_info, filename, link_info)
+                        s3_results.extend(upload_results)
+                    except Exception as e:
+                        logger.warning(f"⚠️ S3 upload failed for {file_info['local_parquet']}: {e}")
                     
                     return {
                         'filename': filename,
@@ -1101,7 +1101,7 @@ class NERPCDynamicExtractor:
                     'total_stations': len(station_data_consolidated)
                     }
                 else:
-                logger.warning(f"⚠️ No station data found in {filename}")
+                    logger.warning(f"⚠️ No station data found in {filename}")
                     return None
                     
         except Exception as e:
