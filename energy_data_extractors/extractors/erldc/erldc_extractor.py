@@ -15,6 +15,7 @@ import re
 from bs4 import BeautifulSoup
 import urllib3
 import json
+import typing
 import zipfile
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -28,10 +29,6 @@ class ERLDCDynamicExtractor:
     def __init__(self):
         # Use the ERPC website as base, but discover everything dynamically
         self.base_url = "https://erpc.gov.in"
-        self.local_storage_dir = Path("local_data/ERLDC")
-        self.master_data_dir = Path("master_data/ERLDC")
-        self.local_storage_dir.mkdir(parents=True, exist_ok=True)
-        self.master_data_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize S3 uploader
         self.s3_uploader = AutoS3Uploader()
@@ -43,31 +40,48 @@ class ERLDCDynamicExtractor:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         
-        # Track processed weeks to avoid duplicates
-        self.processed_weeks_file = self.master_data_dir / "processed_weeks.json"
-        self.processed_weeks = self.load_processed_weeks()
+        # Track processed weeks to avoid duplicates (no local storage)
+        self.processed_weeks = {}
         
         # FAST MODE: Enable by default for better performance
         self.fast_mode = True
 
-    def load_processed_weeks(self):
-        """Load list of already processed weeks"""
+    def _ensure_unique_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Ensure DataFrame has unique, clean column names and drop exact duplicate columns."""
         try:
-            if self.processed_weeks_file.exists():
-                with open(self.processed_weeks_file, 'r') as f:
-                    return json.load(f)
-            return {}
-        except Exception as e:
-            logger.warning(f"⚠️ Could not load processed weeks: {e}")
-            return {}
+            # Normalize names: strip, collapse spaces, remove trailing units in name decorations
+            new_cols = []
+            seen = {}
+            for col in df.columns:
+                base = str(col).strip()
+                # Unify common unit decorations in headers (do not touch data)
+                base = re.sub(r"\s*\(MWH\)|\s*\(KWH\)|\s*\(Hz\)", "", base, flags=re.I)
+                base = base.replace("\n", " ").strip()
+                candidate = base
+                idx = 1
+                while candidate in seen:
+                    idx += 1
+                    candidate = f"{base}.{idx-1}"
+                seen[candidate] = True
+                new_cols.append(candidate)
+            df.columns = new_cols
+            # Drop truly duplicated columns (same name after normalization keeps first occurrence)
+            df = df.loc[:, ~df.columns.duplicated()]
+            return df
+        except Exception:
+            return df
+
+    def load_processed_weeks(self):
+        """Load list of already processed weeks (no local storage)"""
+        # For now, we'll skip file tracking to avoid local storage
+        # In production, this could be stored in S3 or a database
+        return {}
 
     def save_processed_weeks(self):
-        """Save list of processed weeks"""
-        try:
-            with open(self.processed_weeks_file, 'w') as f:
-                json.dump(self.processed_weeks, f, indent=2)
-        except Exception as e:
-            logger.error(f"❌ Could not save processed weeks: {e}")
+        """Save list of processed weeks (no local storage)"""
+        # For now, we'll skip file tracking to avoid local storage
+        # In production, this could be stored in S3 or a database
+        pass
 
     def get_past_7_days_weeks(self):
         """Get week information for the past 7 days"""
@@ -226,7 +240,7 @@ class ERLDCDynamicExtractor:
                             
                             # Check if this file matches our week or looks like data
                             is_data_file = False
-                            if any(date_str in href for date_str in [week_info['start_date'], week_info['end_date']] for week_info in past_weeks):
+                            if any(date_str in href for week_info in past_weeks for date_str in [week_info['start_date'], week_info['end_date']]):
                                 is_data_file = True
                             elif any(keyword in text.lower() for keyword in ['dsm', 'data', 'report', 'week', 'settlement']):
                                 is_data_file = True
@@ -249,10 +263,9 @@ class ERLDCDynamicExtractor:
                         if high_priority_count >= 3:
                             logger.info(f"🎯 Found {high_priority_count} high-priority files! Stopping scan to save time.")
                             break
-            
-            except Exception as e:
-                logger.debug(f"⚠️ Fast scan failed for {scan_url}: {e}")
-                continue
+                except Exception as e:
+                    logger.debug(f"⚠️ Fast scan failed for {scan_url}: {e}")
+                    continue
             
             logger.info(f"📊 Fast scan complete! Found {len(discovered_files)} unique .xlsx files")
             return discovered_files
@@ -281,7 +294,7 @@ class ERLDCDynamicExtractor:
             # Look for data-related links
             data_links = []
             for link in all_links:
-                href = link.get('href', '').lower()
+                href = link.get('href', '')
                 text = link.get_text(strip=True).lower()
                 
                 # Check if this looks like a data link
@@ -305,8 +318,12 @@ class ERLDCDynamicExtractor:
                     # Log the URL construction for debugging
                     logger.debug(f"🔗 URL construction: {href} -> {full_url}")
                     
+                    # Extract filename from URL
+                    filename = os.path.basename(full_url)
+                    
                     data_links.append({
                         'url': full_url,
+                        'filename': filename,
                         'text': link.get_text(strip=True),
                         'href': href,
                         'source': 'main_page_discovery'
@@ -363,20 +380,20 @@ class ERLDCDynamicExtractor:
                             link_text = xlsx_link.get_text(strip=True)
                             
                             # Build full URL for the .xlsx file
-                    if href.startswith('http'):
-                        full_url = href
+                            if href.startswith('http'):
+                                full_url = href
                             elif href.startswith('//'):
                                 full_url = f"https:{href}"
-                    elif href.startswith('/'):
+                            elif href.startswith('/'):
                                 full_url = f"{self.base_url}{href}"
-                    else:
+                            else:
                                 # Relative to the current directory
                                 full_url = f"{url.rstrip('/')}/{href}"
-                    
+                            
                             logger.info(f"✅ Found .xlsx file: {link_text} -> {full_url}")
                             
                             xlsx_files.append({
-                        'url': full_url,
+                                'url': full_url,
                                 'text': link_text,
                                 'href': href,
                                 'source': 'fast_drill_down',
@@ -390,8 +407,7 @@ class ERLDCDynamicExtractor:
                         
                         # FAST MODE: Skip recursive sub-page scanning
                         logger.info(f"⏭️ FAST MODE: Skipping sub-page scanning for {text}")
-            
-        except Exception as e:
+                except Exception as e:
                     logger.debug(f"⚠️ FAST SCAN failed for {url}: {e}")
                     continue
             
@@ -434,23 +450,23 @@ class ERLDCDynamicExtractor:
                         for file_link in file_links:
                             href = file_link.get('href', '')
                             filename = file_link.get_text(strip=True)
-                    
-                    # Build full URL
-                    if href.startswith('http'):
-                        full_url = href
+
+                            # Build full URL
+                            if href.startswith('http'):
+                                full_url = href
                             elif href.startswith('//'):
                                 full_url = f"https:{href}"
-                    elif href.startswith('/'):
+                            elif href.startswith('/'):
                                 full_url = f"{self.base_url}{href}"
-                    else:
+                            else:
                                 full_url = f"{url.rstrip('/')}/{href}"
                             
                             # Extract week information from filename
                             week_info = self.extract_week_from_filename(href, filename)
                             
                             actual_files.append({
-                        'url': full_url,
-                        'filename': os.path.basename(href),
+                                'url': full_url,
+                                'filename': os.path.basename(href),
                                 'text': filename,
                                 'week_info': week_info,
                                 'source': 'actual_discovery',
@@ -466,8 +482,7 @@ class ERLDCDynamicExtractor:
                         
                         if len(actual_files) >= 5:
                             break
-            
-        except Exception as e:
+                except Exception as e:
                     logger.debug(f"⚠️ Could not search {url}: {e}")
                     continue
             
@@ -542,8 +557,7 @@ class ERLDCDynamicExtractor:
                 'week_num': week_start.isocalendar()[1],
                 'week_key': f"{week_start.strftime('%Y%m%d')}-{week_end.strftime('%Y%m%d')}"
             }
-                            
-                except Exception as e:
+        except Exception as e:
             logger.debug(f"⚠️ Could not extract week from filename: {e}")
             return None
 
@@ -571,7 +585,7 @@ class ERLDCDynamicExtractor:
                     if len(valid_links) >= 3:
                         logger.info(f"🎯 Found {len(valid_links)} accessible links, stopping validation early")
                         break
-                        
+                            
                 except Exception as e:
                     logger.debug(f"⚠️ FAST validation failed: {url} - {e}")
                     link['accessible'] = False
@@ -590,7 +604,7 @@ class ERLDCDynamicExtractor:
         except Exception:
             return False
 
-    def _process_zip_to_csv(self, zip_path: Path) -> str | None:
+    def _process_zip_to_csv(self, zip_path: Path) -> typing.Optional[str]:
         try:
             logger.info(f"🔍 Processing ZIP file (ERLDC): {zip_path}")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -602,9 +616,11 @@ class ERLDCDynamicExtractor:
                 with zip_ref.open(csv_filename) as csv_file:
                     df = pd.read_csv(csv_file)
                 output_filename = f"extracted_{os.path.basename(csv_filename)}"
-                output_path = self.local_storage_dir / output_filename
-                df.to_csv(output_path, index=False)
-                logger.info(f"✅ Extracted CSV from ZIP: {output_path}")
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_file:
+                    df.to_csv(csv_file.name, index=False)
+                    output_path = csv_file.name
+                logger.info(f"✅ Extracted CSV from ZIP: {output_filename}")
                 return str(output_path)
         except Exception as e:
             logger.error(f"❌ Error processing ZIP (ERLDC): {e}")
@@ -686,7 +702,7 @@ class ERLDCDynamicExtractor:
             
             logger.info(f"✅ Discovered data patterns: {patterns}")
             return patterns
-            
+                
         except Exception as e:
             logger.error(f"❌ Error discovering data patterns: {e}")
             return {}
@@ -742,11 +758,12 @@ class ERLDCDynamicExtractor:
             # Generate filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             local_filename = f"ERLDC_Real_Data_{timestamp}{Path(filename).suffix}"
-            local_path = self.local_storage_dir / local_filename
             
-            # Save the file
-            with open(local_path, 'wb') as f:
-                f.write(response.content)
+            # Save the file to temporary location
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix) as temp_file:
+                temp_file.write(response.content)
+                local_path = Path(temp_file.name)
             
             # If ZIP, extract to CSV and use that CSV path
             if local_path.suffix.lower() == '.zip':
@@ -776,59 +793,353 @@ class ERLDCDynamicExtractor:
             logger.error(f"❌ Download failed for {filename}: {e}")
             return None
 
-    def create_master_dataset(self):
-        """Create a master dataset from all processed ERLDC files"""
+    def _parse_erldc_sheet(self, df, sheet_name):
+        """Parse ERLDC sheet data with proper structure"""
         try:
-            logger.info("🔧 Creating ERLDC master dataset...")
-            
-            # Find all data files (both Excel and CSV)
-            excel_files = list(self.local_storage_dir.glob("*.xlsx"))
-            csv_files = list(self.local_storage_dir.glob("*.csv"))
-            all_files = excel_files + csv_files
-            
-            if not all_files:
-                logger.warning("⚠️ No data files found to create master dataset")
+            if df.empty:
                 return None
             
-            # Read and combine all data files
-            all_data = []
-            for data_file in all_files:
+            # Find the data start row (look for 'Date' in first column)
+            data_start_row = None
+            station_name = sheet_name  # Default to sheet name
+            
+            for i, row in df.iterrows():
+                if pd.notna(row.iloc[0]) and str(row.iloc[0]).strip() == 'Date':
+                    data_start_row = i
+                    break
+                # Also check for station name in row 1
+                if i == 1 and pd.notna(row.iloc[0]) and 'Station :' in str(row.iloc[0]):
+                    station_name = str(row.iloc[0]).replace('Station :', '').strip()
+            
+            if data_start_row is None:
+                logger.warning(f"⚠️ Could not find data start row in sheet {sheet_name}")
+                return None
+            
+            # Use the row with 'Date' as headers
+            headers = df.iloc[data_start_row].tolist()
+            
+            # Get data starting from the next row
+            data_df = df.iloc[data_start_row + 1:].copy()
+            data_df.columns = headers
+            
+            # Clean up the data
+            data_df = data_df.dropna(how='all')  # Remove completely empty rows
+            
+            # Add station information
+            data_df['Station_Name'] = station_name
+            data_df['Sheet_Name'] = sheet_name
+            
+            # Convert date column if it exists
+            if 'Date' in data_df.columns:
                 try:
-                    if data_file.suffix.lower() == '.xlsx':
-                        df = pd.read_excel(data_file)
-                    else:  # CSV file
-                        df = pd.read_csv(data_file)
+                    data_df['Date'] = pd.to_datetime(data_df['Date'], errors='coerce')
+                except:
+                    pass
+            
+            logger.info(f"📊 Parsed sheet {sheet_name}: {len(data_df)} rows, station: {station_name}")
+            return data_df
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error parsing sheet {sheet_name}: {e}")
+            return None
+
+
+
+    def _convert_kwh_to_mwh(self, df: pd.DataFrame) -> None:
+        """Convert KWh data to MWh by dividing by 1000"""
+        try:
+            # Energy columns that might be in KWh
+            energy_columns = ['actual', 'schedule', 'deviation']
+            
+            for col in energy_columns:
+                if col in df.columns:
+                    # Check if this column contains KWh data
+                    if df[col].dtype in ['object', 'string']:
+                        # Try to convert to numeric first
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
                     
-                    # Add source file information
-                    df['Source_File'] = data_file.name
-                    df['Processing_Date'] = datetime.now().strftime('%Y-%m-%d')
-                    df['Region'] = 'ERLDC'
+                    # Check if values are in KWh range (typically much larger than MWh)
+                    if df[col].dtype in ['int64', 'float64']:
+                        non_null_values = df[col].dropna()
+                        if len(non_null_values) > 0:
+                            # If values are in thousands range, likely KWh
+                            median_value = non_null_values.median()
+                            if median_value > 100:  # KWh values are typically much larger
+                                logger.info(f"🔄 Converting {col} from KWh to MWh (dividing by 1000)")
+                                df[col] = df[col] / 1000
+                                logger.info(f"✅ Converted {col} to MWh")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error converting KWh to MWh: {e}")
+
+    def _process_xlsx_to_dataframe(self, file_path, filename):
+        """Process XLSX file and extract dataframes"""
+        try:
+            import pandas as pd
+            
+            # Read the XLSX file
+            xlsx_file = pd.ExcelFile(file_path)
+            
+            # Get all sheet names
+            sheet_names = xlsx_file.sheet_names
+            logger.info(f"📊 Found {len(sheet_names)} sheets in {filename}: {sheet_names}")
+            
+            all_dataframes = []
+            
+            for sheet_name in sheet_names:
+                try:
+                    # Read the sheet
+                    df = pd.read_excel(xlsx_file, sheet_name=sheet_name)
                     
-                    all_data.append(df)
-                    logger.info(f"📄 Added {data_file.name}: {len(df)} rows")
+                    if df.empty:
+                        logger.info(f"⏭️ Skipping empty sheet: {sheet_name}")
+                        continue
+                    
+                    # Add metadata columns
+                    df['Source_File'] = filename
+                    df['Sheet_Name'] = sheet_name
+                    
+                    # Try to extract station name from sheet name or filename
+                    station_name = self._extract_station_name(sheet_name, filename)
+                    if station_name:
+                        df['Station_Name'] = station_name
+                    else:
+                        df['Station_Name'] = 'ERLDC'
+                    
+                    all_dataframes.append(df)
+                    logger.info(f"✅ Processed sheet '{sheet_name}' from {filename} ({len(df)} rows)")
+                    
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not read {data_file}: {e}")
+                    logger.warning(f"⚠️ Error processing sheet '{sheet_name}' from {filename}: {e}")
                     continue
             
-            if not all_data:
-                logger.warning("⚠️ No data to combine")
+            # Combine all sheets into one dataframe
+            if all_dataframes:
+                combined_df = pd.concat(all_dataframes, ignore_index=True)
+                logger.info(f"📊 Combined {len(all_dataframes)} sheets into dataframe with {len(combined_df)} rows")
+                return combined_df
+            else:
+                logger.warning(f"⚠️ No valid sheets found in {filename}")
                 return None
                 
-            # Combine all data
-            master_df = pd.concat(all_data, ignore_index=True)
-            
-            # Save master dataset
-            master_filename = f"ERLDC_MASTER_DATASET_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            master_path = self.master_data_dir / master_filename
-            master_df.to_csv(master_path, index=False)
-            
-            logger.info(f"✅ ERLDC master dataset created: {master_path} ({len(master_df)} rows)")
- 
-            return str(master_path)
-                
         except Exception as e:
-            logger.error(f"❌ Error creating ERLDC master dataset: {e}")
+            logger.error(f"❌ Error processing XLSX file {filename}: {e}")
             return None
+    
+    def _extract_station_name(self, sheet_name, filename):
+        """Extract station name from sheet name or filename"""
+        try:
+            # Try to extract from sheet name first
+            if sheet_name and sheet_name != 'Sheet1':
+                # Clean the sheet name
+                clean_name = sheet_name.strip().replace(' ', '_').replace('-', '_')
+                if len(clean_name) > 3:  # Avoid very short names
+                    return clean_name
+            
+            # Try to extract from filename
+            if filename:
+                # Remove common prefixes and suffixes
+                clean_filename = filename.replace('DSM_Blockwise_Data_', '').replace('.xlsx', '')
+                # Extract date range part and use as station identifier
+                if 'to' in clean_filename:
+                    return 'ERLDC_' + clean_filename.split('to')[0].strip()
+            
+            return 'ERLDC'
+        except:
+            return 'ERLDC'
+
+    def _export_partitioned_to_s3(self, master_df: pd.DataFrame) -> None:
+        """Export CSV and Parquet per station/year/month to S3 under dsm_data/raw and dsm_data/parquet."""
+        try:
+            if self.s3_uploader is None or not hasattr(self.s3_uploader, 'auto_upload_file'):
+                logger.info("⏭️ S3 uploader not configured; skipping S3 export")
+                return
+            if master_df.empty:
+                return
+            if 'Station_Name' not in master_df.columns:
+                logger.info("⏭️ 'Station_Name' column missing; skipping S3 partitioned export")
+                return
+            # Ensure Date is parsed
+            date_series = None
+            if 'Date' in master_df.columns:
+                date_series = pd.to_datetime(master_df['Date'], errors='coerce')
+            else:
+                date_series = pd.to_datetime(datetime.now())
+            df = master_df.copy()
+            df['__date__'] = date_series
+            df['__year__'] = df['__date__'].dt.year.fillna(datetime.now().year).astype(int)
+            df['__month__'] = df['__date__'].dt.month.fillna(datetime.now().month).astype(int)
+            # Iterate partitions
+            base_raw = 'dsm_data/raw'
+            base_parquet = 'dsm_data/parquet'
+            for station, g1 in df.groupby('Station_Name'):
+                # Choose best station name: Station_Name → station_name → Sheet_Name/sheet_name → provided group key
+                candidates = []
+                try:
+                    if 'Station_Name' in g1.columns:
+                        vals = g1['Station_Name'].dropna().astype(str)
+                        if not vals.empty:
+                            candidates.append(vals.mode().iloc[0])
+                except Exception:
+                    pass
+                try:
+                    if 'station_name' in g1.columns:
+                        vals = g1['station_name'].dropna().astype(str)
+                        if not vals.empty:
+                            candidates.append(vals.mode().iloc[0])
+                except Exception:
+                    pass
+                try:
+                    if 'Sheet_Name' in g1.columns:
+                        vals = g1['Sheet_Name'].dropna().astype(str)
+                        if not vals.empty:
+                            candidates.append(vals.mode().iloc[0])
+                    elif 'sheet_name' in g1.columns:
+                        vals = g1['sheet_name'].dropna().astype(str)
+                        if not vals.empty:
+                            candidates.append(vals.mode().iloc[0])
+                except Exception:
+                    pass
+                if isinstance(station, str) and station.strip():
+                    candidates.append(station)
+                # Filter out generic/unknown tokens from candidates
+                def _is_valid_name(name: typing.Any) -> bool:
+                    if name is None:
+                        return False
+                    s = str(name).strip()
+                    if not s:
+                        return False
+                    bad = {
+                        'UNKNOWN_STATION', 'UNKNOWN_SHEET', 'UNKNOWN',
+                        'NR', 'SR', 'WR', 'ER', 'NER', 'REGION', 'EAST CENTRAL RAILWAY'
+                    }
+                    return s.upper() not in bad
+
+                filtered = [c for c in candidates if _is_valid_name(c)]
+                chosen_station = filtered[0] if filtered else 'Unknown_Station'
+                # Avoid generic region codes as station names
+                if chosen_station.upper() in {'NR', 'SR', 'WR', 'ER', 'NER', 'EAST CENTRAL RAILWAY'} and 'Sheet_Name' in g1.columns:
+                    try:
+                        sheet_vals = g1['Sheet_Name'].dropna().astype(str)
+                        if not sheet_vals.empty:
+                            chosen_station = sheet_vals.mode().iloc[0]
+                    except Exception:
+                        pass
+                # If still unknown, try any sheet_name and sanitize
+                if (not _is_valid_name(chosen_station)):
+                    for alt_col in ['Sheet_Name', 'sheet_name']:
+                        if alt_col in g1.columns:
+                            try:
+                                vals = g1[alt_col].dropna().astype(str)
+                                if not vals.empty:
+                                    # pick first valid
+                                    for v in vals.mode().tolist():
+                                        if _is_valid_name(v):
+                                            chosen_station = v
+                                            break
+                                    if _is_valid_name(chosen_station):
+                                        break
+                            except Exception:
+                                pass
+                # Strip common region codes from start/end
+                try:
+                    tokens_to_strip = {'NR','SR','WR','ER','NER','EAST CENTRAL RAILWAY','REGION'}
+                    name_upper = str(chosen_station).upper().strip()
+                    if name_upper in tokens_to_strip:
+                        # fallback to sheet name again if purely a token
+                        if 'Sheet_Name' in g1.columns:
+                            vals = g1['Sheet_Name'].dropna().astype(str)
+                            if not vals.empty:
+                                for v in vals.mode().tolist():
+                                    if _is_valid_name(v):
+                                        chosen_station = v
+                                        break
+                except Exception:
+                    pass
+                safe_station = str(chosen_station).strip().replace('/', '_').replace(' ', '_')
+                for (year, month), g2 in g1.groupby(['__year__','__month__']):
+                    part_df = g2.drop(columns=[c for c in ['__date__','__year__','__month__'] if c in g2.columns]).copy()
+                    # Ensure unique columns before serialization
+                    part_df = self._ensure_unique_columns(part_df)
+                    # Prepare temporary files
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    csv_name = f"ERLDC_{safe_station}_{year}_{month:02d}_{ts}.csv"
+                    pq_name = f"ERLDC_{safe_station}_{year}_{month:02d}_{ts}.parquet"
+                    
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_file:
+                        part_df.to_csv(csv_file.name, index=False)
+                        tmp_csv = csv_file.name
+                    
+                    with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as parquet_file:
+                        tmp_pq = parquet_file.name
+                    
+                    # Skip CSV uploads to raw - only store original XLSX files
+                    try:
+                        logger.info(f"📄 Created CSV temporarily: {csv_name}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ CSV creation failed for {safe_station} {year}-{month:02d}: {e}")
+                    # Write Parquet
+                    try:
+                        # Clean and prepare data for parquet conversion
+                        clean_df = part_df.copy()
+                        
+                        # Handle all columns to ensure parquet compatibility
+                        for col in clean_df.columns:
+                            try:
+                                # Convert all data to string first to avoid mixed type issues
+                                clean_df[col] = clean_df[col].astype(str)
+                                
+                                # Then try to convert back to appropriate types
+                                col_str = str(col).lower()
+                                
+                                # Handle date columns
+                                if col_str.startswith('date') or col_str in {'time', 'processing_date'}:
+                                    clean_df[col] = pd.to_datetime(clean_df[col], errors='coerce').astype(str)
+                                
+                                # Handle numeric columns
+                                elif col_str in {'block', 'value', 'amount', 'price', 'rate', 'mw', 'mwh'}:
+                                    # Try to convert to numeric, keep as string if fails
+                                    numeric_series = pd.to_numeric(clean_df[col], errors='coerce')
+                                    if not numeric_series.isna().all():
+                                        clean_df[col] = numeric_series.fillna(0).astype(str)
+                                
+                                # Handle unnamed columns - convert to string to avoid mixed type issues
+                                elif 'unnamed' in col_str:
+                                    clean_df[col] = clean_df[col].astype(str)
+                                
+                            except Exception as col_error:
+                                # If any conversion fails, keep as string
+                                clean_df[col] = clean_df[col].astype(str)
+                                logger.debug(f"Column {col} kept as string due to conversion error: {col_error}")
+                        
+                        # Remove any completely empty columns
+                        clean_df = clean_df.dropna(axis=1, how='all')
+                        
+                        # Ensure all columns have string data types for parquet compatibility
+                        for col in clean_df.columns:
+                            clean_df[col] = clean_df[col].astype(str)
+                        
+                        # Convert to parquet
+                        clean_df.to_parquet(tmp_pq, index=False, engine='pyarrow')
+                        
+                        # Parquet: dsm_data/parquet/ERLDC/{station_name}/{year}/{month}/{filename}
+                        s3_key_p = f"{base_parquet}/ERLDC/{safe_station}/{year}/{month:02d}/{pq_name}"
+                        self.s3_uploader.auto_upload_file(str(tmp_pq), original_filename=s3_key_p)
+                        logger.info(f"📤 Uploaded Parquet to s3://{s3_key_p}")
+                        
+                        # Clean up temporary files
+                        os.unlink(tmp_csv)
+                        os.unlink(tmp_pq)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Parquet upload failed for {safe_station} {year}-{month:02d}: {e}")
+                        # Clean up temporary files even if upload failed
+                        if os.path.exists(tmp_csv):
+                            os.unlink(tmp_csv)
+                        if os.path.exists(tmp_pq):
+                            os.unlink(tmp_pq)
+        except Exception as e:
+            logger.warning(f"⚠️ Partitioned export encountered an error: {e}")
 
     def run_extraction(self):
         """Main extraction process"""
@@ -838,11 +1149,11 @@ class ERLDCDynamicExtractor:
         past_weeks = self.get_past_7_days_weeks()
         logger.info(f"📅 Processing {len(past_weeks)} weeks from past 7 days")
         
-        # Prefer direct pattern URLs for last 7 days
-        logger.info("🔍 Step 1: Generating direct DSM blockwise URLs for last 7 days...")
-        discovered_files = self.generate_direct_dsm_urls()
+        # First try to discover actual existing files on the website
+        logger.info("🔍 Step 1: Discovering actual existing files on ERLDC website...")
+        discovered_files = self.discover_real_data_files()
         
-        # If no direct files found, try fast scanning for .xlsx files
+        # If no files found, try fast scanning for .xlsx files
         if not discovered_files:
             logger.info("🔍 Step 2: Fast scanning for .xlsx files...")
             discovered_files = self.fast_scan_for_xlsx_files()
@@ -851,6 +1162,11 @@ class ERLDCDynamicExtractor:
         if not discovered_files:
             logger.info("🔍 Step 3: Searching directories for actual files...")
             discovered_files = self.search_for_actual_data_files()
+            
+        # If still no files found, try direct pattern URLs as last resort
+        if not discovered_files:
+            logger.info("🔍 Step 4: Trying direct pattern URLs as last resort...")
+            discovered_files = self.generate_direct_dsm_urls()
         
         # Filter and process files
         if discovered_files:
@@ -871,14 +1187,17 @@ class ERLDCDynamicExtractor:
                     continue
                 
                 lower_name = filename.lower()
-                # Strict DSM blockwise .xlsx
-                if self._is_dsm_blockwise_filename(filename):
+                # Accept DSM blockwise .xlsx files (flexible matching)
+                if (lower_name.endswith('.xlsx') and 
+                    ('dsm' in lower_name) and 
+                    ('blockwise' in lower_name) and 
+                    ('data' in lower_name)):
                     valid_links.append(link)
                     logger.info(f"✅ Accepting DSM blockwise file: {filename} (Source: {source})")
                     continue
                 
                 # Also accept DSM-related ZIPs (will extract CSV) without changing output structure
-                if lower_name.endswith('.zip') and (('dsm' in lower_name) or ('blockwise' in lower_name) or ('dsm' in text) or ('blockwise' in text)):
+                if lower_name.endswith('.zip') and (("dsm" in lower_name) or ("blockwise" in lower_name) or ("dsm" in text) or ("blockwise" in text)):
                     valid_links.append(link)
                     logger.info(f"✅ Accepting DSM-related ZIP: {filename} (Source: {source})")
                     continue
@@ -890,25 +1209,66 @@ class ERLDCDynamicExtractor:
             # Sort links by priority (high priority first) and then by source
             valid_links.sort(key=lambda x: (x.get('priority', 'low') == 'high', x.get('source', '') == 'actual_discovery'), reverse=True)
             
+            # Remove duplicate files based on filename to avoid processing the same file multiple times
+            unique_links = []
+            seen_filenames = set()
+            for link in valid_links:
+                filename = link.get('filename', '')
+                if filename not in seen_filenames:
+                    unique_links.append(link)
+                    seen_filenames.add(filename)
+                else:
+                    logger.info(f"⏭️ Skipping duplicate file: {filename}")
+            
+            logger.info(f"🔍 After deduplication: {len(unique_links)} unique files out of {len(valid_links)} total")
+            
             # Download ERLDC files with smart early stopping
             downloaded_files = []
-            for i, erldc_link in enumerate(valid_links):
+            all_dataframes = []  # Collect all dataframes for parquet export
+            processed_filenames = set()  # Track processed files to avoid duplicates
+            
+            for i, erldc_link in enumerate(unique_links):
                 source = erldc_link.get('source', 'unknown')
                 priority = erldc_link.get('priority', 'low')
-                logger.info(f"📊 Processing {i+1}/{len(valid_links)}: {erldc_link['filename']} (Source: {source}, Priority: {priority})")
+                filename = erldc_link['filename']
                 
-
+                # Skip if we've already processed this filename
+                if filename in processed_filenames:
+                    logger.info(f"⏭️ Skipping already processed file: {filename}")
+                    continue
+                
+                logger.info(f"📊 Processing {i+1}/{len(unique_links)}: {filename} (Source: {source}, Priority: {priority})")
                 
                 downloaded_file = self.download_erldc_file(erldc_link)
                 if downloaded_file:
                     downloaded_files.append(downloaded_file)
-                    logger.info(f"✅ Successfully downloaded: {erldc_link['filename']}")
+                    processed_filenames.add(filename)
+                    logger.info(f"✅ Successfully downloaded: {filename}")
+                    
+                    # Process the downloaded file and extract dataframes
+                    try:
+                        if downloaded_file.lower().endswith('.xlsx'):
+                            # Read the XLSX file and extract dataframes
+                            df = self._process_xlsx_to_dataframe(downloaded_file, filename)
+                            if df is not None and not df.empty:
+                                all_dataframes.append(df)
+                                logger.info(f"📊 Extracted dataframe with {len(df)} rows from {filename}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error processing {filename} for parquet export: {e}")
                     
                     # Upload to S3 if enabled
                     if self.s3_uploader.enabled:
-                        success = self.s3_uploader.auto_upload_file(downloaded_file, original_filename=os.path.basename(downloaded_file))
+                        # raw/ERPC/{YEAR}/{MONTH}/{filename}
+                        from datetime import datetime as _dt
+                        now = _dt.now()
+                        # Only upload XLSX files to raw (not CSV files)
+                        if downloaded_file.lower().endswith('.xlsx'):
+                            raw_key = f"dsm_data/raw/ERLDC/{now.year}/{now.month:02d}/{os.path.basename(downloaded_file)}"
+                        success = self.s3_uploader.auto_upload_file(downloaded_file, original_filename=raw_key)
                         if success:
-                            logger.info(f"📤 Uploaded to S3: {downloaded_file}")
+                                logger.info(f"📤 Uploaded XLSX to S3: {raw_key}")
+                        else:
+                            logger.info(f"📄 Skipping non-XLSX file upload to raw: {downloaded_file}")
                     
                     # If we have at least 2 high-priority data files, that's enough
                     high_priority_count = sum(1 for f in downloaded_files if erldc_link.get('priority') == 'high')
@@ -916,33 +1276,24 @@ class ERLDCDynamicExtractor:
                         logger.info(f"🎯 Got {high_priority_count} high-priority data files! Stopping early to save time.")
                         break
                     
-                    # If we have at least 3 files total, that's also enough
-                    if len(downloaded_files) >= 3:
-                        logger.info(f"🎯 Got {len(downloaded_files)} total files! Stopping early to save time.")
-                        break
-                        
-                else:
-                    logger.warning(f"⚠️ Failed to download: {erldc_link['filename']}")
+            # Combine all dataframes and export parquet files
+            if all_dataframes:
+                try:
+                    logger.info(f"🔄 Combining {len(all_dataframes)} dataframes for parquet export...")
+                    combined_df = pd.concat(all_dataframes, ignore_index=True)
+                    logger.info(f"📊 Combined dataframe has {len(combined_df)} rows")
                     
-                    # If we've tried 5 files and got nothing, stop to save time
-                    if i >= 4 and len(downloaded_files) == 0:
-                        logger.warning(f"⚠️ Tried 5 files with no success. Stopping to save time.")
-                        break
+                    # Export parquet files using the existing function
+                    self._export_partitioned_to_s3(combined_df)
+                    logger.info("✅ Parquet files exported successfully")
+                except Exception as e:
+                    logger.warning(f"⚠️ Parquet export failed: {e}")
                         
-                # Check if we have enough DSM data files specifically
-                dsm_files_count = sum(1 for f in downloaded_files if 'dsm' in f.lower())
-                if dsm_files_count >= 2:
-                    logger.info(f"🎯 Got {dsm_files_count} DSM data files! This is exactly what we need.")
-                    break
         else:
             logger.warning("⚠️ No ERLDC data links found using any discovery method")
             return []
         
-        # Create master dataset
-        if downloaded_files:
-            master_file = self.create_master_dataset()
-            if master_file:
-                downloaded_files.append(master_file)
+        # No master dataset creation needed
         
         if downloaded_files:
             logger.info(f"🎉 ERLDC extraction complete! Downloaded {len(downloaded_files)} real files in minimal time")

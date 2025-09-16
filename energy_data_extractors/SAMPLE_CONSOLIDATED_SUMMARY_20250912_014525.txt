@@ -1,0 +1,46 @@
+SAMPLE CONSOLIDATED DATASET SUMMARY
+==================================================
+
+Generated: 2025-09-12 01:45:25
+Total Rows: 1,500
+Total Columns: 11
+
+REGION BREAKDOWN:
+--------------------
+NERPC: 300 rows
+WRPC: 300 rows
+ERLDC: 300 rows
+SRPC: 300 rows
+NRLDC: 300 rows
+
+STATION BREAKDOWN:
+--------------------
+STATION_A: 100 rows
+STATION_B: 100 rows
+STATION_C: 100 rows
+STATION_D: 100 rows
+STATION_E: 100 rows
+STATION_F: 100 rows
+STATION_G: 100 rows
+STATION_H: 100 rows
+STATION_I: 100 rows
+STATION_J: 100 rows
+STATION_K: 100 rows
+STATION_L: 100 rows
+STATION_M: 100 rows
+STATION_N: 100 rows
+STATION_O: 100 rows
+
+COLUMNS:
+----------
+datetime: 1,500 non-null values
+region: 1,500 non-null values
+station: 1,500 non-null values
+power_mw: 1,500 non-null values
+voltage_kv: 1,500 non-null values
+frequency_hz: 1,500 non-null values
+temperature_c: 1,500 non-null values
+humidity_percent: 1,500 non-null values
+status: 1,500 non-null values
+source_file: 1,500 non-null values
+processing_timestamp: 1,500 non-null values

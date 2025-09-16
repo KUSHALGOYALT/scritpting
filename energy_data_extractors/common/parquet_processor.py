@@ -202,7 +202,10 @@ class ParquetProcessor:
             elif region == 'WRPC':
                 parquet_filename = f"WRPC_DSM_Data_{date_str}.parquet"
             elif region == 'ERLDC':
-                parquet_filename = f"ERLDC_DSM_Data_{date_str}.parquet"
+                parquet_filename = f"ERLDC_DSM_Data_{date_str}.parquet"            elif region == 'SRPC':
+                parquet_filename = f"SRPC_DSM_Data_{date_str}.parquet"
+            elif region == 'NERPC':
+                parquet_filename = f"NERPC_DSM_Data_{date_str}.parquet"
             else:
                 parquet_filename = f"{region}_{base_name}_{date_str}.parquet"
             

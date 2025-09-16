@@ -1,0 +1,11 @@
+# AWS Configuration Template
+# Copy this file to .env and fill in your actual AWS credentials
+
+AWS_ACCESS_KEY_ID=your_aws_access_key_here
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+AWS_REGION=us-east-1
+AWS_S3_BUCKET=your_s3_bucket_name_here
+
+# Optional: Other settings
+DEBUG=false
+LOG_LEVEL=INFO
