@@ -23,6 +23,9 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from auto_s3_upload import AutoS3Uploader
 
+# Import region mapper
+from nrldc_region_mapper import NRLDCRegionMapper
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,9 @@ class NRLDCWorkingDSAExtractor:
         
         # Initialize S3 uploader
         self.s3_uploader = AutoS3Uploader()
+        
+        # Initialize region mapper
+        self.region_mapper = NRLDCRegionMapper()
         
         # Session for maintaining cookies
         self.session = requests.Session()
@@ -120,7 +126,7 @@ class NRLDCWorkingDSAExtractor:
             return []
 
     def get_dsa_links(self):
-        """Get DSA links from the main page"""
+        """Get DSA links from the main page with enhanced revision detection"""
         try:
             logger.info("🔍 Getting DSA links from NRLDC DSA page...")
             
@@ -132,29 +138,61 @@ class NRLDCWorkingDSAExtractor:
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Find supporting file links (.xls only)
+            # Find supporting file links with enhanced pattern matching
             links = soup.find_all('a', href=True)
             logger.info(f"🔗 Found {len(links)} total links")
             dsa_links = []
+            
+            # Enhanced patterns to detect various file naming conventions
+            supporting_patterns = [
+                r'supporting_files.*\.xls',
+                r'supporting.*files.*\.xls', 
+                r'dsm.*supporting.*\.xls',
+                r'dsa.*supporting.*\.xls',
+                r'.*supporting.*_[rR]\d+.*\.xls',    # Revision files (_r1, _R1)
+                r'.*supporting.*_[rR][eE][vV]\d+.*\.xls',  # Revision files (_rev1, _REV1)
+                r'.*supporting.*_[vV]\d+.*\.xls'     # Version files (_v1, _V1)
+            ]
+            
             for a in links:
                 text = (a.get_text() or '').strip().lower()
                 href = a.get('href', '')
                 if not href:
                     continue
+                
                 href_l = href.lower()
-                if ('supporting file' in text or 'supporting' in text) and href_l.endswith('.xls'):
+                
+                # Check against all patterns
+                is_supporting_file = False
+                for pattern in supporting_patterns:
+                    if re.search(pattern, href_l):
+                        is_supporting_file = True
+                        break
+                
+                # Also check for exact matches
+                if ('supporting_files.xls' in href_l or href_l.endswith('supporting_files.xls')):
+                    is_supporting_file = True
+                
+                if is_supporting_file:
                     full_url = href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}"
+                    
+                    # Extract revision info for better tracking
+                    revision_info = self.extract_revision_info(href)
+                    
                     dsa_links.append({
                         'text': a.get_text().strip(),
                         'url': full_url,
-                        'filename': os.path.basename(href)
+                        'filename': os.path.basename(href),
+                        'revision_info': revision_info
                     })
             
-            logger.info(f"📊 Found {len(dsa_links)} DSA links")
+            logger.info(f"📊 Found {len(dsa_links)} DSA links (including revisions)")
             
-            # Show found links
+            # Show found links with revision info
             for link in dsa_links[:5]:
-                logger.info(f"   📎 {link['text']} -> {link['filename']}")
+                rev_info = link.get('revision_info', {})
+                rev_text = f" (Rev: {rev_info.get('revision', 'N/A')})" if rev_info.get('has_revision') else ""
+                logger.info(f"   📎 {link['text']} -> {link['filename']}{rev_text}")
             
             return dsa_links
             
@@ -162,6 +200,7 @@ class NRLDCWorkingDSAExtractor:
             logger.error(f"❌ Error getting DSA links: {e}")
             return []
 
+<<<<<<< HEAD
     def get_csv_links(self):
         """Get Supporting CSV links from the main DSA page (CSV-only)."""
         try:
@@ -199,7 +238,56 @@ class NRLDCWorkingDSAExtractor:
 
     def extract_week_from_url(self, url):
         """Extract week information from URL"""
+=======
+    def extract_revision_info(self, filename):
+        """Extract revision information from filename"""
+>>>>>>> 42e63fd5c0fa2c187891b8039d31d109f4aad45e
         try:
+            # Look for revision patterns (case-insensitive)
+            revision_patterns = [
+                r'_[rR](\d+)',           # _r1, _R1, _r2, _R2
+                r'_[rR][eE][vV](\d+)',   # _rev1, _REV1, _Rev1  
+                r'_[rR][eE][vV][iI][sS][iI][oO][nN](\d+)',  # _revision1, _REVISION1
+                r'_[vV](\d+)',           # _v1, _V1, _v2, _V2
+                r'_[vV][eE][rR][sS][iI][oO][nN](\d+)',      # _version1, _VERSION1
+                r'\([rR](\d+)\)',        # (r1), (R1), (r2), (R2)
+                r'\([rR][eE][vV](\d+)\)', # (rev1), (REV1), (Rev1)
+            ]
+            
+            for pattern in revision_patterns:
+                match = re.search(pattern, filename.lower())
+                if match:
+                    revision_num = match.group(1)
+                    return {
+                        'has_revision': True,
+                        'revision': revision_num,
+                        'pattern': pattern,
+                        'original_filename': filename
+                    }
+            
+            return {
+                'has_revision': False,
+                'revision': None,
+                'pattern': None,
+                'original_filename': filename
+            }
+            
+        except Exception as e:
+            logger.debug(f"⚠️ Error extracting revision info: {e}")
+            return {'has_revision': False, 'revision': None}
+
+    def extract_week_from_url(self, url):
+        """Extract week information from URL with revision detection"""
+        try:
+            # Look for revision indicators (case-insensitive: _r1, _R1, _rev1, _REV1, etc.)
+            revision_pattern = r'_[rR](\d+)|_[rR][eE][vV](\d+)|_[rR][eE][vV][iI][sS][iI][oO][nN](\d+)|_[vV](\d+)'
+            revision_match = re.search(revision_pattern, url)
+            revision_num = None
+            if revision_match:
+                # Get the first non-None group
+                revision_num = next((g for g in revision_match.groups() if g), None)
+                logger.info(f"🔄 Detected revision indicator: r{revision_num}")
+            
             # Look for date patterns in URL like "110825-170825(WK-20)"
             date_pattern = r'(\d{6})-(\d{6})\(WK-(\d+)\)'
             match = re.search(date_pattern, url)
@@ -207,7 +295,8 @@ class NRLDCWorkingDSAExtractor:
                 start_date = match.group(1)
                 end_date = match.group(2)
                 week_num = match.group(3)
-                return f"{start_date}-{end_date}_WK{week_num}"
+                base_key = f"{start_date}-{end_date}_WK{week_num}"
+                return f"{base_key}_r{revision_num}" if revision_num else base_key
             
             # Look for date patterns in URL like "110825-170825"
             date_pattern2 = r'(\d{6})-(\d{6})'
@@ -218,7 +307,8 @@ class NRLDCWorkingDSAExtractor:
                 # Try to extract week from the URL path
                 week_match = re.search(r'wk-?(\d+)', url.lower())
                 week_num = week_match.group(1) if week_match else "UNK"
-                return f"{start_date}-{end_date}_WK{week_num}"
+                base_key = f"{start_date}-{end_date}_WK{week_num}"
+                return f"{base_key}_r{revision_num}" if revision_num else base_key
             
             return "unknown_week"
             
@@ -243,17 +333,44 @@ class NRLDCWorkingDSAExtractor:
             # Extract week info from URL/text if present
             week_info = self.extract_week_from_url(dsa_link['url'])
             
-            # Check if we already have this week and if it's newer
-            if week_info in self.processed_weeks:
-                existing_timestamp = self.processed_weeks[week_info].get('timestamp', '')
-                current_timestamp = datetime.now().isoformat()
+            # Check for existing files of the same week (including base and revision files)
+            base_week_key = week_info.split('_r')[0] if '_r' in week_info else week_info
+            files_to_remove = []
+            
+            # Find all files for this week (base + any revisions)
+            for existing_key in list(self.processed_weeks.keys()):
+                existing_base_key = existing_key.split('_r')[0] if '_r' in existing_key else existing_key
+                if existing_base_key == base_week_key:
+                    files_to_remove.append(existing_key)
+            
+            # Remove all existing files for this week
+            for key_to_remove in files_to_remove:
+                existing_file = self.processed_weeks[key_to_remove].get('csv_file', '')
+                if existing_file:
+                    old_csv_path = self.local_storage_dir / existing_file
+                    if old_csv_path.exists():
+                        old_csv_path.unlink()
+                        logger.info(f"🗑️ Removed old CSV: {existing_file}")
                 
-                # If this is an update, log it
-                if existing_timestamp < current_timestamp:
-                    logger.info(f"🔄 Updating existing week: {week_info}")
+                # Also delete old XLS file
+                old_xls_name = existing_file.replace('.csv', '.xls') if existing_file else ''
+                if old_xls_name:
+                    old_xls_path = self.local_storage_dir / old_xls_name
+                    if old_xls_path.exists():
+                        old_xls_path.unlink()
+                        logger.info(f"🗑️ Removed old XLS: {old_xls_name}")
+                
+                # Remove from tracking
+                del self.processed_weeks[key_to_remove]
+            
+            if files_to_remove:
+                revision_info = self.extract_revision_info(dsa_link['filename'])
+                if revision_info.get('has_revision'):
+                    logger.info(f"🔄 Revision file {revision_info.get('revision')} replacing all previous versions for week: {base_week_key}")
                 else:
-                    logger.info(f"⏭️ Week already processed: {week_info}")
-                    return None
+                    logger.info(f"🔄 Updated file replacing previous versions for week: {base_week_key}")
+            else:
+                logger.info(f"📥 New week data: {week_info}")
             
             # Save the file to temporary location
             import tempfile
@@ -263,6 +380,7 @@ class NRLDCWorkingDSAExtractor:
             
             logger.info(f"✅ Downloaded: {dsa_link['filename']} ({len(response.content)} bytes)")
             
+<<<<<<< HEAD
             # Convert XLS to per-sheet CSVs, extract Station name from sheet content
             csv_path = None
             try:
@@ -311,6 +429,36 @@ class NRLDCWorkingDSAExtractor:
                         out_path = csv_file.name
                     logger.info(f"✅ Converted XLS to CSV: {csv_filename} ({len(df)} rows, {len(df.columns)} cols)")
                     csv_path = str(out_path)
+=======
+            # Convert XLS to CSV preserving columns and add region mapping
+            csv_path = None
+            try:
+                df = pd.read_excel(file_path)
+                
+                # Add region mapping if station name column exists
+                station_col = None
+                for col in df.columns:
+                    if 'stn' in str(col).lower() or 'station' in str(col).lower() or col == df.columns[0]:
+                        station_col = col
+                        break
+                
+                if station_col is not None:
+                    # Apply region mapping
+                    df_mapped = self.region_mapper.map_dataframe_regions(df, station_col)
+                    logger.info(f"✅ Added region mapping to {len(df_mapped)} rows")
+                    
+                    # Get region summary
+                    region_summary = self.region_mapper.get_region_summary(df_mapped, station_col)
+                    logger.info(f"📊 Region summary: {region_summary['by_group']}")
+                    
+                    df = df_mapped
+                
+                csv_filename = dsa_link['filename'].rsplit('.', 1)[0] + '.csv'
+                csv_path = self.local_storage_dir / csv_filename
+                df.to_csv(csv_path, index=False)
+                logger.info(f"✅ Converted XLS to CSV with region mapping: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
+                csv_path = str(csv_path)
+>>>>>>> 42e63fd5c0fa2c187891b8039d31d109f4aad45e
             except Exception as e:
                 logger.warning(f"⚠️ Sheet parse failed: {e}")
                 csv_path = str(file_path)
@@ -971,6 +1119,25 @@ class NRLDCWorkingDSAExtractor:
             # Add metadata
             master_df['Master_Dataset_Created'] = datetime.now().isoformat()
             master_df['Total_Records'] = len(master_df)
+            master_df['Region'] = 'NRLDC'
+            
+            # Generate region-based summary if region columns exist
+            if 'State' in master_df.columns and 'Regional_Group' in master_df.columns:
+                region_stats = {
+                    'total_stations': len(master_df.iloc[:, 0].unique()) if len(master_df) > 0 else 0,
+                    'states_covered': master_df['State'].nunique(),
+                    'regional_groups': master_df['Regional_Group'].nunique(),
+                    'state_distribution': master_df['State'].value_counts().to_dict(),
+                    'group_distribution': master_df['Regional_Group'].value_counts().to_dict()
+                }
+                
+                # Save region summary
+                summary_file = self.master_data_dir / "NRLDC_Summary.json"
+                with open(summary_file, 'w') as f:
+                    json.dump(region_stats, f, indent=2)
+                
+                logger.info(f"📊 Region Summary: {region_stats['group_distribution']}")
+                logger.info(f"✅ Saved region summary: {summary_file}")
             
             # Create and save station mapping
             station_mapping = {}
@@ -1796,10 +1963,44 @@ class NRLDCWorkingDSAExtractor:
             week_key = item['week_key']
             logger.info(f"📥 Downloading Supporting XLS: {filename}")
 
-            # Skip if processed and no update needed
-            if week_key in self.processed_weeks:
-                logger.info(f"⏭️ Week already processed: {week_key}")
-                return None
+            # Check for existing files of the same week (including base and revision files)
+            base_week_key = week_key.split('_r')[0] if '_r' in week_key else week_key
+            files_to_remove = []
+            
+            # Find all files for this week (base + any revisions)
+            for existing_key in list(self.processed_weeks.keys()):
+                existing_base_key = existing_key.split('_r')[0] if '_r' in existing_key else existing_key
+                if existing_base_key == base_week_key:
+                    files_to_remove.append(existing_key)
+            
+            # Remove all existing files for this week
+            for key_to_remove in files_to_remove:
+                existing_file = self.processed_weeks[key_to_remove].get('csv_file', '')
+                if existing_file:
+                    old_csv_path = self.local_storage_dir / existing_file
+                    if old_csv_path.exists():
+                        old_csv_path.unlink()
+                        logger.info(f"🗑️ Removed old CSV: {existing_file}")
+                
+                # Also delete old XLS file
+                old_xls_name = self.processed_weeks[key_to_remove].get('filename', '')
+                if old_xls_name:
+                    old_xls_path = self.local_storage_dir / old_xls_name
+                    if old_xls_path.exists():
+                        old_xls_path.unlink()
+                        logger.info(f"🗑️ Removed old XLS: {old_xls_name}")
+                
+                # Remove from tracking
+                del self.processed_weeks[key_to_remove]
+            
+            if files_to_remove:
+                revision_info = self.extract_revision_info(filename)
+                if revision_info.get('has_revision'):
+                    logger.info(f"🔄 Revision file {revision_info.get('revision')} replacing all previous versions for week: {base_week_key}")
+                else:
+                    logger.info(f"🔄 Updated file replacing previous versions for week: {base_week_key}")
+            else:
+                logger.info(f"📥 New week data: {week_key}")
 
             resp = self.session.get(url, timeout=30)
             if resp.status_code != 200:
@@ -1811,6 +2012,7 @@ class NRLDCWorkingDSAExtractor:
             with open(xls_path, 'wb') as f:
                 f.write(resp.content)
             logger.info(f"✅ Saved XLS: {xls_path}")
+<<<<<<< HEAD
             # Upload original supporting XLS to raw/NRLDC/supporting_files
             try:
                 if self.s3_uploader and hasattr(self.s3_uploader, 'auto_upload_file'):
@@ -1941,6 +2143,36 @@ class NRLDCWorkingDSAExtractor:
                     df.to_csv(csv_path, index=False)
                     logger.info(f"✅ Wrote CSV: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
                     csv_saved = str(csv_path)
+=======
+
+            # Convert to CSV with all columns intact and add region mapping
+            try:
+                df = pd.read_excel(xls_path, engine='xlrd')
+                
+                # Add region mapping if station name column exists
+                station_col = None
+                for col in df.columns:
+                    if 'stn' in str(col).lower() or 'station' in str(col).lower() or col == df.columns[0]:
+                        station_col = col
+                        break
+                
+                if station_col is not None:
+                    # Apply region mapping
+                    df_mapped = self.region_mapper.map_dataframe_regions(df, station_col)
+                    logger.info(f"✅ Added region mapping to {len(df_mapped)} rows")
+                    
+                    # Get region summary
+                    region_summary = self.region_mapper.get_region_summary(df_mapped, station_col)
+                    logger.info(f"📊 Region summary: {region_summary['by_group']}")
+                    
+                    df = df_mapped
+                
+                csv_filename = filename.replace('.xls', '.csv')
+                csv_path = self.local_storage_dir / csv_filename
+                df.to_csv(csv_path, index=False)
+                logger.info(f"✅ Wrote CSV with region mapping: {csv_path} ({len(df)} rows, {len(df.columns)} cols)")
+                csv_saved = str(csv_path)
+>>>>>>> 42e63fd5c0fa2c187891b8039d31d109f4aad45e
             except Exception as ce:
                 logger.warning(f"⚠️ Could not parse XLS workbook: {ce}")
                 csv_saved = None

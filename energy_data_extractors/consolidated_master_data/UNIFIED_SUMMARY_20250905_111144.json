@@ -1,0 +1,29 @@
+{
+  "creation_timestamp": "2025-09-05T11:11:48.810579",
+  "total_records": 83605,
+  "total_unique_stations": 42,
+  "regions_included": 3,
+  "regional_breakdown": {
+    "NRLDC": {
+      "records": 2013,
+      "stations": 1,
+      "states": 22
+    },
+    "ERLDC": {
+      "records": 80920,
+      "stations": 40,
+      "states": 7
+    },
+    "WRPC": {
+      "records": 672,
+      "stations": 1,
+      "states": 1
+    }
+  },
+  "overall_statistics": {
+    "states_covered": 24,
+    "regional_groups": 14,
+    "data_quality_avg": 1.0,
+    "completeness": "19.6%"
+  }
+}
